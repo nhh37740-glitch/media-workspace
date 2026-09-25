@@ -10,7 +10,6 @@
 import hudson.security.FullControlOnceLoggedInAuthorizationStrategy
 import hudson.security.HudsonPrivateSecurityRealm
 import jenkins.model.Jenkins
-import jenkins.security.s2m.AdminWhitelistRule
 
 def instance = Jenkins.get()
 
@@ -112,17 +111,24 @@ try {
     println("[init] could not record the setup state: ${failure.message}")
 }
 
-// The agent connects with a token issued by the controller, so the agent-to-controller command
-// channel has to be permitted. It is wrapped because the class that owns the switch has moved
-// between Jenkins versions, and a failure here must not abort the script after the account and the
-// authorization strategy have already been written.
-try {
-    def rules = instance.getExtensionList(AdminWhitelistRule.class)
-    if (!rules.isEmpty()) {
-        rules.get(0).setMasterKillSwitch(false)
-    }
-} catch (Throwable failure) {
-    println("[init] could not adjust the agent command whitelist: ${failure.message}")
-}
+// There is deliberately no call to AdminWhitelistRule#setMasterKillSwitch here any more.
+//
+// The method still exists on 2.568.3, and calling it produces a stack trace that reads like a
+// failure, but nothing is thrown. Disassembled with `javap -c`, its entire body is a logging call:
+//
+//   LOGGER.log(state ? Level.WARNING : Level.INFO,
+//       "Setting AdminWhitelistRule no longer has any effect. See
+//        https://www.jenkins.io/redirect/AdminWhitelistRule to learn more.",
+//       new Exception())
+//
+// The Exception is constructed only to be attached to the log record, which is why the journal shows
+// a bare `java.lang.Exception` at AdminWhitelistRule.java:34 with a stack ending at this script. It
+// never propagates, so it is not what aborted this script in the past: that was the
+// MissingMethodException documented above. The call is a no-op that adds an INFO line and a
+// misleading stack trace to every start, so it is gone.
+//
+// The agent-to-controller rules the old switch used to disable per build are configured per command
+// in $JENKINS_HOME/jenkins.security.s2m.ConfigFile; the inbound agent needs no entry there for the
+// WebSocket transport, because it opens the connection itself.
 
 println('[init] security configured: authenticated access only, 0 executors on the controller')

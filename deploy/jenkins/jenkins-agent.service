@@ -31,8 +31,12 @@ Environment=DEPLOY_ROOT=/opt/media-workspace
 # sets slaveAgentPort to -1 - so the only endpoint an agent can reach is the WebSocket one on the
 # controller's HTTP port. Without this flag the agent tries the TCP protocol, finds nothing
 # listening and retries until the unit is restarted.
+# The temporary directory is moved out of /tmp for the same reason as the controller: /tmp is a
+# 981 MiB tmpfs, which is below the 1 GiB threshold of Jenkins' DiskSpaceMonitor, and an agent the
+# monitor marks offline never accepts a build. /opt/jenkins-agent/tmp is on the root filesystem.
 ExecStart=/bin/bash -c 'exec "$JAVA_HOME/bin/java" -Xms64m -Xmx256m -XX:+UseSerialGC \
   -Dfile.encoding=UTF-8 -Duser.timezone=UTC \
+  -Djava.io.tmpdir=/opt/jenkins-agent/tmp \
   -jar /opt/jenkins-agent/agent.jar \
   -url http://127.0.0.1:8081/ \
   -secret @/opt/jenkins/agent.secret \

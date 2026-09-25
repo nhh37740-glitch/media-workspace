@@ -30,7 +30,13 @@ Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 # had no effect on which site the controller used. The site that is actually consulted is the one
 # recorded in $JENKINS_HOME/hudson.model.UpdateCenter.xml, left at its default. Plugins are
 # installed from scripts/setup-jenkins.sh.
-Environment=JAVA_OPTS=-Xms96m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC
+# The temporary directory is moved out of /tmp on purpose. Jenkins' DiskSpaceMonitor takes a node
+# offline when the filesystem holding its temporary directory has less than 1 GiB free, and on this
+# host /tmp is a 981 MiB tmpfs. The controller was therefore marked offline on every start with
+# "Disk space is below threshold of 1.00 GiB. Only 896.79 MiB out of 981.25 MiB left on /tmp", and
+# the same monitor would take the agent offline as well. $JENKINS_HOME/tmp is on the 59 GiB root
+# filesystem. The directory is created by scripts/setup-jenkins.sh.
+Environment=JAVA_OPTS=-Xms96m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC -Djava.io.tmpdir=/opt/jenkins/tmp
 # The listen address and port are arguments rather than CLI options on the unit, so the bind is
 # visible next to the reason it is loopback-only.
 ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java $JAVA_OPTS -jar /opt/jenkins/jenkins.war --httpListenAddress=127.0.0.1 --httpPort=8081 --prefix=

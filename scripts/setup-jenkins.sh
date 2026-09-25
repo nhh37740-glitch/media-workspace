@@ -48,7 +48,12 @@ set -a; . "$ENV_FILE"; set +a
 
 install_controller() {
   log "installing the controller"
-  install -d -o ubuntu -g ubuntu "$JENKINS_HOME_DIR" "$AGENT_DIR"
+  # The two tmp directories are the JVM temporary directories of the controller and of the agent,
+  # set in their units with -Djava.io.tmpdir. They are created here so the units never point at a
+  # path that does not exist, and they are on the root filesystem rather than on /tmp, which is a
+  # 981 MiB tmpfs and therefore below the 1 GiB threshold at which Jenkins' DiskSpaceMonitor marks a
+  # node offline.
+  install -d -o ubuntu -g ubuntu "$JENKINS_HOME_DIR" "$AGENT_DIR" "$JENKINS_HOME_DIR/tmp" "$AGENT_DIR/tmp"
 
   if [ ! -f "$JENKINS_HOME_DIR/jenkins.war" ]; then
     curl -sSL --retry 3 -o /tmp/jenkins.war \
