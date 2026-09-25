@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:media-workspace:event-envelope:v1",
+  "title": "Media Workspace event envelope v1",
+  "type": "object",
+  "required": ["eventId", "eventType", "schemaVersion", "occurredAt", "mediaId", "taskId", "generation", "aggregateVersion", "requestId", "traceId", "producerInvocationId", "payload"],
+  "properties": {
+    "eventId": {"$ref": "#/$defs/uuid"},
+    "eventType": {"enum": ["TASK_REQUESTED", "TASK_SUCCEEDED", "TASK_FAILED", "TASK_CANCELLED"]},
+    "schemaVersion": {"const": 1},
+    "occurredAt": {"type": "string", "format": "date-time"},
+    "mediaId": {"$ref": "#/$defs/uuid"},
+    "taskId": {"$ref": "#/$defs/uuid"},
+    "generation": {"type": "integer", "minimum": 1},
+    "aggregateVersion": {"type": "integer", "minimum": 1},
+    "requestId": {"$ref": "#/$defs/uuid"},
+    "traceId": {"$ref": "#/$defs/uuid"},
+    "producerInvocationId": {"$ref": "#/$defs/uuid"},
+    "causationEventId": {"anyOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+    "payload": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"eventType": {"const": "TASK_REQUESTED"}}}, "then": {"properties": {"payload": {"required": ["preset"], "properties": {"preset": {"const": "MP4_720P_V1"}}}}}},
+    {"if": {"properties": {"eventType": {"const": "TASK_SUCCEEDED"}}}, "then": {"properties": {"payload": {"required": ["attemptId", "outputBytes", "durationMs"], "properties": {"attemptId": {"$ref": "#/$defs/uuid"}, "outputBytes": {"type": "integer", "minimum": 1}, "durationMs": {"type": "integer", "minimum": 1}}}}}},
+    {"if": {"properties": {"eventType": {"const": "TASK_FAILED"}}}, "then": {"properties": {"payload": {"required": ["attemptId", "errorCode", "retryable"], "properties": {"attemptId": {"$ref": "#/$defs/uuid"}, "errorCode": {"type": "string", "minLength": 1, "maxLength": 64}, "retryable": {"const": false}}}}}},
+    {"if": {"properties": {"eventType": {"const": "TASK_CANCELLED"}}}, "then": {"properties": {"payload": {"required": ["reason"], "properties": {"reason": {"enum": ["USER_REQUEST", "MEDIA_DELETED"]}}}}}}
+  ],
+  "$defs": {"uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}},
+  "additionalProperties": true
+}

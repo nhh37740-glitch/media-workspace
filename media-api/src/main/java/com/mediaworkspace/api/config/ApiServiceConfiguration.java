@@ -32,6 +32,8 @@ import com.mediaworkspace.application.service.UploadFinalizeService;
 import com.mediaworkspace.application.service.UploadFinalizeTransactionService;
 import com.mediaworkspace.application.service.UploadService;
 import com.mediaworkspace.application.service.WorkspaceService;
+import com.mediaworkspace.messaging.ResultEventConsumer;
+import com.mediaworkspace.messaging.TopicNames;
 import com.mediaworkspace.api.security.BCryptPasswordHasher;
 import com.mediaworkspace.api.security.SecureSecretTokens;
 import com.mediaworkspace.api.trace.Slf4jBoundaryTrace;
@@ -177,6 +179,22 @@ public class ApiServiceConfiguration {
     @Bean
     public TaskIntakeService taskIntakeService(InboxRepository inbox, TaskRepository tasks, Clock clock) {
         return new TaskIntakeService(inbox, tasks, clock);
+    }
+
+    /**
+     * The consumer that builds the notification and audit projection from result events.
+     *
+     * <p>Registered explicitly: {@code @KafkaListener} only reaches classes that are beans, and an
+     * unregistered consumer produces no error - just events nobody reads. The API consumes results
+     * and never request events; the request consumer belongs to the worker, and
+     * {@code ListenerRegistrationTest} asserts that split.
+     */
+    @Bean
+    public ResultEventConsumer resultEventConsumer(ResultProjectionService projection,
+                                                   DeadLetterService deadLetters,
+                                                   EventSerializer serializer,
+                                                   TopicNames topics) {
+        return new ResultEventConsumer(projection, deadLetters, serializer, topics);
     }
 
     @Bean

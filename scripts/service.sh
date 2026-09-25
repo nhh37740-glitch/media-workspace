@@ -150,6 +150,8 @@ case "$ACTION" in
     while read -r name; do start_one "$name" "$release"; done < <(targets)
     ;;
   stop)
+    # Stopping only reads the pid files; it must not require the environment file to be readable,
+    # so that a deployment whose configuration is broken can still be brought down.
     while read -r name; do stop_one "$name"; done < <(targets)
     ;;
   restart)

@@ -1,0 +1,960 @@
+openapi: 3.0.3
+info:
+  title: 团队影音素材管理与处理平台 API
+  version: 1.0.0
+  description: |
+    接口语义基线。实现位于 media-api。
+
+    通用约定：
+    - 前缀 `/api/v1`，请求与响应均为 UTF-8 JSON；
+    - 标识符使用小写带连字符的 UUID；时间为 UTC ISO-8601；大小以字节为整数；
+    - 请求体的未知字段一律拒绝，字符串去除首尾空白后再校验；
+    - 分页从 1 开始，pageSize 取 1..100（默认 20），顺序固定为 createdAt DESC, id DESC；
+    - 会话使用 Cookie 鉴权；所有修改类接口都必须带 `X-CSRF-TOKEN`，令牌由 `GET /auth/csrf` 取得；
+    - 状态码语义：401 未登录、403 已知成员无权限、404 不存在或不可见、409 状态冲突、
+      413 超限、422 输入内容无效、429 配额或容量限制、503 依赖暂不可用；
+    - 错误体统一为 ErrorResponse；`details` 只包含可安全展示的字段。
+
+servers:
+  - url: /api/v1
+
+tags:
+  - name: auth
+  - name: spaces
+  - name: uploads
+  - name: media
+  - name: tasks
+  - name: shares
+  - name: public
+
+paths:
+  /auth/csrf:
+    get:
+      tags: [auth]
+      summary: 取得 CSRF 令牌
+      description: 不需要会话即可调用；返回的令牌需在修改类请求的 `X-CSRF-TOKEN` 头中回传。
+      responses:
+        '200':
+          description: 令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, headerName]
+                properties:
+                  token: { type: string }
+                  headerName: { type: string, example: X-CSRF-TOKEN }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: 登录
+      description: 密码错误与用户不存在返回相同的响应，避免账号枚举。成功后更换会话标识。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, minLength: 1, maxLength: 64 }
+                password: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '200':
+          description: 已登录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserView' }
+        '401':
+          description: 凭据无效
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: 退出登录
+      responses:
+        '204': { description: 会话已失效 }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: 当前身份
+      responses:
+        '200':
+          description: 身份
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserView' }
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces:
+    post:
+      tags: [spaces]
+      summary: 创建空间
+      description: 创建者成为该空间唯一的所有者。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaceView' }
+        '422':
+          description: 输入无效
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    get:
+      tags: [spaces]
+      summary: 当前用户的全部空间
+      responses:
+        '200':
+          description: 空间列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SpaceView' }
+
+  /spaces/{spaceId}/members:
+    get:
+      tags: [spaces]
+      summary: 成员列表
+      description: 仅空间所有者可读。
+      parameters:
+        - $ref: '#/components/parameters/SpaceId'
+      responses:
+        '200':
+          description: 成员
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MemberView' }
+        '403':
+          description: 非所有者
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: 空间不存在或不可见
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces/{spaceId}/members/{userId}:
+    put:
+      tags: [spaces]
+      summary: 新增成员或修改角色
+      description: 仅所有者可调用；不能授予 OWNER，也不能覆盖既有的 OWNER。
+      parameters:
+        - $ref: '#/components/parameters/SpaceId'
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [EDITOR, VIEWER] }
+      responses:
+        '200':
+          description: 更新后的成员
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberView' }
+        '403':
+          description: 非所有者
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: 空间或目标用户不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [spaces]
+      summary: 移除成员
+      description: 仅所有者可调用；OWNER 行不能被移除。重复移除返回 204。
+      parameters:
+        - $ref: '#/components/parameters/SpaceId'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204': { description: 已移除 }
+        '403':
+          description: 非所有者
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces/{spaceId}/uploads:
+    post:
+      tags: [uploads]
+      summary: 创建分片上传会话
+      description: |
+        必须在事务内原子完成“校验配额 + 增加预留”。分片大小与分片数量由服务端决定并返回，
+        客户端不能自选。相同幂等键与相同请求体返回原会话（200）；不同请求体返回 409。
+      parameters:
+        - $ref: '#/components/parameters/SpaceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, sizeBytes, sha256, title]
+              properties:
+                filename: { type: string, minLength: 1, maxLength: 200, description: 仅作展示，绝不当路径 }
+                sizeBytes: { type: integer, format: int64, minimum: 1, maximum: 1073741824 }
+                sha256: { type: string, pattern: '^[0-9a-f]{64}$', description: 全文件校验值，合并后核对 }
+                title: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadCreatedResponse' }
+        '200':
+          description: 幂等重放，返回原会话
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadCreatedResponse' }
+        '409':
+          description: 同一幂等键用于了不同请求体
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: 超出空间源文件配额或未结束上传数量上限
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /uploads/{uploadId}:
+    get:
+      tags: [uploads]
+      summary: 查询上传会话
+      description: 返回已接收分片，供断点续传使用。
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      responses:
+        '200':
+          description: 会话状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatusResponse' }
+        '404':
+          description: 会话不存在，或调用者无权管理
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [uploads]
+      summary: 终止上传会话
+      description: OPEN/FAILED 可终止并释放预留；FINALIZING 与 COMPLETED 返回 409。
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      responses:
+        '204': { description: 已终止 }
+        '409':
+          description: 当前状态不允许终止
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /uploads/{uploadId}/chunks/{index}:
+    put:
+      tags: [uploads]
+      summary: 上传一个分片
+      description: |
+        请求体为原始字节。服务端流式写入临时文件并同时计算长度与 SHA-256，校验通过后才发布为
+        不可变对象，之后才写数据库行。首次写入返回 201；相同字节重传返回 200；
+        同一下标的不同字节返回 409，且不改动已存分片。
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+        - name: index
+          in: path
+          required: true
+          schema: { type: integer, minimum: 0 }
+        - name: X-Chunk-SHA256
+          in: header
+          required: false
+          schema: { type: string, pattern: '^[0-9a-f]{64}$' }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '201':
+          description: 分片已存储
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChunkUploadResponse' }
+        '200':
+          description: 相同字节已存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChunkUploadResponse' }
+        '400':
+          description: 下标越界或长度声明不符
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: 同下标已有不同字节
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: 分片内容与其声明的校验值不符
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /uploads/{uploadId}/complete:
+    post:
+      tags: [uploads]
+      summary: 请求合并
+      description: 必须全部片齐，否则 409 CHUNKS_MISSING。合并异步进行，重复调用不会启动第二次合并。
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+      responses:
+        '202':
+          description: 已受理，合并进行中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatusResponse' }
+        '200':
+          description: 已完成，响应含 mediaId
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatusResponse' }
+        '409':
+          description: 缺块
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /spaces/{spaceId}/media:
+    get:
+      tags: [media]
+      summary: 检索素材
+      description: 关键词按标题匹配，LIKE 元字符会被转义。
+      parameters:
+        - $ref: '#/components/parameters/SpaceId'
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 素材分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/MediaListItemView' }
+        '404':
+          description: 空间不存在或不可见
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /media/{mediaId}:
+    get:
+      tags: [media]
+      summary: 素材详情
+      description: 响应中不含 storageKey，服务端存储布局不对外暴露。
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: 详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaDetailView' }
+        '404':
+          description: 不存在或不可见
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    patch:
+      tags: [media]
+      summary: 重命名素材
+      description: 使用乐观锁；版本不匹配返回 409。
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, version]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 120 }
+                version: { type: integer, format: int64, minimum: 0 }
+      responses:
+        '200':
+          description: 更新后的详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaDetailView' }
+        '403':
+          description: 角色不足
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: 版本冲突
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [media]
+      summary: 删除素材
+      description: 仅所有者；逻辑删除并取消未终结任务；此后所有访问返回 404。
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '204': { description: 已删除 }
+        '403':
+          description: 非所有者
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /media/{mediaId}/content:
+    get:
+      tags: [media]
+      summary: 播放转码结果
+      description: |
+        仅在 READY 时提供。支持单范围请求：合法时返回 206 与 Content-Range；越界返回 416 与
+        `bytes */total`；多范围按产品约定返回 416。授权在范围计算之前完成。
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+        - name: Range
+          in: header
+          schema: { type: string, example: 'bytes=0-1023' }
+      responses:
+        '200':
+          description: 完整内容
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '206':
+          description: 部分内容
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '409':
+          description: 素材尚未就绪
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '416':
+          description: 范围无法满足
+    head:
+      tags: [media]
+      summary: 播放响应的头信息
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200': { description: 与 GET 相同的头，无响应体 }
+        '206': { description: 与 GET 相同的头，无响应体 }
+
+  /media/{mediaId}/poster:
+    get:
+      tags: [media]
+      summary: 封面
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: JPEG
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        '404':
+          description: 没有封面
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /media/{mediaId}/shares:
+    post:
+      tags: [shares]
+      summary: 创建限时分享
+      description: |
+        仅对 READY 素材、由 EDITOR 或 OWNER 创建。有效期 1 分钟至 7 天。
+        **原始 token 只在此响应中返回一次**，库中只存散列值；响应丢失时请撤销后重建，不要尝试恢复。
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expiresAt]
+              properties:
+                expiresAt: { type: string, format: date-time }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateShareResponse' }
+        '409':
+          description: 素材尚未就绪
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: 该素材的有效分享已达上限
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    get:
+      tags: [shares]
+      summary: 素材的分享列表
+      description: 创建者或所有者可读；不返回 token。最多最近 100 条。
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: 分享列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ShareListItemView' }
+
+  /shares/{shareId}:
+    delete:
+      tags: [shares]
+      summary: 撤销分享
+      description: 立即阻止后续请求；重复撤销返回 204。
+      parameters:
+        - name: shareId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 已撤销 }
+        '404':
+          description: 分享不存在或调用者无权撤销
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /tasks/{taskId}:
+    get:
+      tags: [tasks]
+      summary: 任务状态
+      description: 这是任务状态的权威来源；SSE 推送只是提示。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 任务
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskView' }
+        '404':
+          description: 任务不存在或不可见
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /tasks/{taskId}/attempts:
+    get:
+      tags: [tasks]
+      summary: 执行历史
+      description: 错误摘要已脱敏并截断，不包含服务器路径与原始堆栈。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页的执行记录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/TaskAttemptView' }
+
+  /tasks/{taskId}/cancel:
+    post:
+      tags: [tasks]
+      summary: 取消任务
+      description: 重复取消返回 200；已成功或已失败的任务返回 409。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 已取消
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  taskId: { type: string, format: uuid }
+                  state: { type: string, enum: [CANCELLED] }
+        '409':
+          description: 已是终态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /tasks/{taskId}/retry:
+    post:
+      tags: [tasks]
+      summary: 重试任务
+      description: 仅 FAILED 或 CANCELLED 且素材未删除时可用；同 taskId 新建一代执行，历史保留。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  taskId: { type: string, format: uuid }
+                  generation: { type: integer, minimum: 1 }
+                  state: { type: string, enum: [WAITING_EVENT] }
+        '409':
+          description: 当前状态不可重试
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /tasks/{taskId}/events:
+    get:
+      tags: [tasks]
+      summary: 任务事件流
+      description: |
+        `text/event-stream`。连接后先发送一帧 `snapshot`；状态变化时发送 `state`；
+        每 15 秒发送一次心跳注释。事件 id 为任务递增的 version，客户端应丢弃更小的 version。
+        队列有界，读得太慢的连接会被关闭；每次轮询都重新校验成员资格，失去权限即关闭连接。
+        终态以 `GET /tasks/{id}` 确认，SSE 不是权威来源。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string, description: 客户端已知的版本，不承诺完整历史回放 }
+      responses:
+        '200':
+          description: 事件流
+          content:
+            text/event-stream:
+              schema: { type: string }
+              example: |
+                id: 18
+                event: state
+                data: {"taskId":"33333333-3333-4333-8333-333333333333","state":"RUNNING","progress":37,"version":18}
+
+        '404':
+          description: 任务不存在或不可见
+
+  /public/share-access:
+    post:
+      tags: [public]
+      summary: 用分享令牌换取访问会话
+      description: |
+        令牌无效、已撤销、已过期或素材已删除时一律返回 404，不区分原因。
+        成功后设置仅用于分享的 HttpOnly Cookie，作用域限定在 `/api/v1/public`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 16, maxLength: 128 }
+      responses:
+        '200':
+          description: 安全的素材描述
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareAccessView' }
+        '404':
+          description: 分享不可用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /public/share-access/content:
+    get:
+      tags: [public]
+      summary: 播放被分享的素材
+      description: 每次请求都重新校验分享未撤销、未过期且素材未删除。
+      parameters:
+        - name: Range
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: 完整内容
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '206': { description: 部分内容 }
+        '404':
+          description: 分享会话不存在或已失效
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    head:
+      tags: [public]
+      summary: 播放响应的头信息
+      responses:
+        '200': { description: 与 GET 相同的头，无响应体 }
+
+components:
+  parameters:
+    SpaceId:
+      name: spaceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UploadId:
+      name: uploadId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MediaId:
+      name: mediaId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 作用域为 用户+路由+资源+键；同键同体返回原结果，同键异体返回 409。
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          description: 稳定的机器可读错误码；客户端按它分支，不按 message 文本分支
+          example: CHUNKS_MISSING
+        message: { type: string }
+        requestId: { type: string, format: uuid }
+        resourceId: { type: string, nullable: true }
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: 仅包含可安全展示的字段
+
+    UserView:
+      type: object
+      required: [userId, username]
+      properties:
+        userId: { type: string, format: uuid }
+        username: { type: string }
+
+    SpaceView:
+      type: object
+      required: [spaceId, name, role]
+      properties:
+        spaceId: { type: string, format: uuid }
+        name: { type: string }
+        role: { type: string, enum: [OWNER, EDITOR, VIEWER] }
+
+    MemberView:
+      type: object
+      required: [userId, username, role]
+      properties:
+        userId: { type: string, format: uuid }
+        username: { type: string }
+        role: { type: string, enum: [OWNER, EDITOR, VIEWER] }
+
+    UploadCreatedResponse:
+      type: object
+      required: [uploadId, chunkSize, chunkCount, status, expiresAt]
+      properties:
+        uploadId: { type: string, format: uuid }
+        chunkSize: { type: integer, description: 由服务端决定 }
+        chunkCount: { type: integer }
+        status: { type: string, enum: [OPEN] }
+        expiresAt: { type: string, format: date-time }
+
+    ReceivedChunkView:
+      type: object
+      required: [index, sha256]
+      properties:
+        index: { type: integer, minimum: 0 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+
+    UploadStatusResponse:
+      type: object
+      required: [uploadId, status, chunkSize, chunkCount, receivedChunks]
+      properties:
+        uploadId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [OPEN, FINALIZING, COMPLETED, FAILED, EXPIRED, ABORTED]
+        chunkSize: { type: integer }
+        chunkCount: { type: integer }
+        receivedChunks:
+          type: array
+          items: { $ref: '#/components/schemas/ReceivedChunkView' }
+        mediaId: { type: string, format: uuid, nullable: true }
+        taskId: { type: string, format: uuid, nullable: true }
+        errorCode: { type: string, nullable: true }
+
+    ChunkUploadResponse:
+      type: object
+      required: [index, sha256, sizeBytes]
+      properties:
+        index: { type: integer, minimum: 0 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        sizeBytes: { type: integer, format: int64 }
+
+    PageResponse:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items: { type: array, items: {} }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer }
+        total: { type: integer, format: int64 }
+
+    MediaListItemView:
+      type: object
+      required: [mediaId, title, status, createdAt]
+      properties:
+        mediaId: { type: string, format: uuid }
+        title: { type: string }
+        status: { type: string, enum: [PROCESSING, READY, FAILED, CANCELLED] }
+        taskId: { type: string, format: uuid, nullable: true }
+        durationMs: { type: integer, format: int64, nullable: true }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    MediaDetailView:
+      allOf:
+        - $ref: '#/components/schemas/MediaListItemView'
+        - type: object
+          required: [originalFilename, sizeBytes, version]
+          properties:
+            originalFilename: { type: string }
+            sizeBytes: { type: integer, format: int64 }
+            errorCode: { type: string, nullable: true }
+            version: { type: integer, format: int64 }
+
+    TaskView:
+      type: object
+      required: [taskId, mediaId, state, generation, attempt, progress, version, updatedAt]
+      properties:
+        taskId: { type: string, format: uuid }
+        mediaId: { type: string, format: uuid }
+        state:
+          type: string
+          enum: [WAITING_EVENT, QUEUED, RUNNING, RETRY_WAIT, SUCCEEDED, FAILED, CANCELLED]
+        generation: { type: integer, minimum: 1 }
+        attempt: { type: integer, minimum: 0, maximum: 3 }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        errorCode: { type: string, nullable: true }
+        version: { type: integer, format: int64 }
+        updatedAt: { type: string, format: date-time }
+
+    TaskAttemptView:
+      type: object
+      required: [attemptId, attempt, generation, state]
+      properties:
+        attemptId: { type: string, format: uuid }
+        attempt: { type: integer }
+        generation: { type: integer }
+        state: { type: string, enum: [RUNNING, SUCCEEDED, FAILED, CANCELLED, LOST] }
+        startedAt: { type: string, format: date-time, nullable: true }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        errorCode: { type: string, nullable: true }
+        errorSummary: { type: string, nullable: true }
+
+    CreateShareResponse:
+      type: object
+      required: [shareId, token, expiresAt]
+      properties:
+        shareId: { type: string, format: uuid }
+        token: { type: string, description: 仅在此响应中返回一次 }
+        expiresAt: { type: string, format: date-time }
+
+    ShareListItemView:
+      type: object
+      required: [shareId, expiresAt]
+      properties:
+        shareId: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time }
+        revokedAt: { type: string, format: date-time, nullable: true }
+
+    ShareAccessView:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        durationMs: { type: integer, format: int64, nullable: true }
+        expiresAt: { type: string, format: date-time }

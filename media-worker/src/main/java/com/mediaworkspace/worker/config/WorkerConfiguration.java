@@ -18,6 +18,8 @@ import com.mediaworkspace.application.service.TaskExecutionService;
 import com.mediaworkspace.application.service.TaskIntakeService;
 import com.mediaworkspace.application.service.TaskPublicationService;
 import com.mediaworkspace.application.service.TaskRecoveryService;
+import com.mediaworkspace.messaging.RequestEventConsumer;
+import com.mediaworkspace.messaging.TopicNames;
 import com.mediaworkspace.storage.LocalMediaStorage;
 import com.mediaworkspace.transcode.ProcessTranscoder;
 import com.mediaworkspace.worker.execution.ExecutionSlotPool;
@@ -129,6 +131,24 @@ public class WorkerConfiguration {
     @Bean
     public TaskIntakeService taskIntakeService(InboxRepository inbox, TaskRepository tasks, Clock clock) {
         return new TaskIntakeService(inbox, tasks, clock);
+    }
+
+    /**
+     * The consumer that turns request events into QUEUED tasks.
+     *
+     * <p>Registered explicitly, and only here. {@code @KafkaListener} is applied by a bean
+     * post-processor that walks the beans of the context: an annotated class that is not a bean gets
+     * no listener at all, and the failure is silent - no error, no warning, just events that are
+     * produced, accepted by the broker and never read. {@code ListenerRegistrationTest} asserts this
+     * bean exists, and that the API does not register one, so the ownership of request consumption
+     * stays visible.
+     */
+    @Bean
+    public RequestEventConsumer requestEventConsumer(TaskIntakeService intake,
+                                                     DeadLetterService deadLetters,
+                                                     EventSerializer serializer,
+                                                     TopicNames topics) {
+        return new RequestEventConsumer(intake, deadLetters, serializer, topics);
     }
 
     @Bean

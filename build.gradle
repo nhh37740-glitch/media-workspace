@@ -80,3 +80,91 @@ subprojects {
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Architecture and version gates (MOD-01). These run in the Validate stage and fail the build, so
+// a dependency that points the wrong way is caught at build time rather than discovered later as a
+// module that cannot be reasoned about in isolation.
+
+/** Modules that must stay free of frameworks, so the rules can be unit-tested without a container. */
+def pureModules = ['media-domain']
+
+/** Frameworks the pure modules must not depend on. */
+def frameworks = ['org.springframework', 'org.mybatis', 'org.apache.kafka', 'jakarta.servlet']
+
+/** Adapters, which must not depend on the executables. */
+def adapterModules = ['adapter-persistence', 'adapter-messaging', 'adapter-transcode', 'adapter-storage']
+
+tasks.register('architectureCheck') {
+    group = 'verification'
+    description = 'Fails when a module depends on something the dependency rules forbid.'
+
+    doLast {
+        def problems = []
+
+        subprojects { sub ->
+            def declared = sub.configurations
+                    .findAll { it.name in ['api', 'implementation', 'compileOnly', 'runtimeOnly'] }
+                    .collectMany { it.dependencies }
+                    .findAll { it.group != null }
+
+            declared.each { dep ->
+                def coordinates = "${dep.group}:${dep.name}"
+
+                if (pureModules.contains(sub.name) && frameworks.any { coordinates.startsWith(it) }) {
+                    problems << "${sub.name} must stay framework-free but depends on ${coordinates}"
+                }
+                if (sub.name == 'media-application'
+                        && adapterModules.any { coordinates.contains(it) }) {
+                    problems << "${sub.name} must not depend on the adapter ${coordinates}"
+                }
+                if (adapterModules.contains(sub.name)
+                        && (coordinates.contains('media-api') || coordinates.contains('media-worker'))) {
+                    problems << "${sub.name} must not depend on the executable ${coordinates}"
+                }
+                if (sub.name != 'media-api' && sub.name != 'media-worker'
+                        && coordinates.contains('spring-boot-starter-web')) {
+                    problems << "${sub.name} is a library and must not pull in a web container"
+                }
+            }
+        }
+
+        if (!problems.isEmpty()) {
+            throw new GradleException("architecture rules violated:\n  " + problems.join("\n  "))
+        }
+        logger.lifecycle('architectureCheck: dependency directions are within the rules')
+    }
+}
+
+tasks.register('versionLockCheck') {
+    group = 'verification'
+    description = 'Fails when the plugin versions in this file disagree with the version catalog.'
+
+    doLast {
+        def catalog = file('gradle/libs.versions.toml').text
+        def expected = [
+                springBoot            : (catalog =~ /springBoot\s*=\s*"([^"]+)"/)[0][1],
+                springDependencyMgmt  : (catalog =~ /springDependencyManagement\s*=\s*"([^"]+)"/)[0][1],
+        ]
+        def rootBuild = file('build.gradle').text
+        def actualBoot = (rootBuild =~ /org\.springframework\.boot'\s+version\s+'([^']+)'/)[0][1]
+        def actualDepMgmt = (rootBuild =~ /io\.spring\.dependency-management'\s+version\s+'([^']+)'/)[0][1]
+
+        def problems = []
+        if (actualBoot != expected.springBoot) {
+            problems << "Spring Boot plugin is ${actualBoot} but the catalog says ${expected.springBoot}"
+        }
+        if (actualDepMgmt != expected.springDependencyMgmt) {
+            problems << "dependency-management plugin is ${actualDepMgmt} but the catalog says ${expected.springDependencyMgmt}"
+        }
+        // A dynamic version would make a build unreproducible, which the delivery contract forbids.
+        def dynamic = catalog.readLines().findAll { it.matches(/\s*\w+\s*=\s*"[^"]*[+*][^"]*"/) }
+        if (!dynamic.isEmpty()) {
+            problems << "dynamic versions are not allowed: ${dynamic}"
+        }
+        if (!problems.isEmpty()) {
+            throw new GradleException("version lock violated:\n  " + problems.join("\n  "))
+        }
+        logger.lifecycle("versionLockCheck: Spring Boot ${actualBoot}, pinned and consistent")
+    }
+}

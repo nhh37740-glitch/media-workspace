@@ -26,6 +26,17 @@ fail() { printf '[deploy] ERROR: %s\n' "$*" >&2; exit 1; }
 [ -d "$DEPLOY_ROOT" ] || fail "$DEPLOY_ROOT does not exist; run scripts/provision-host.sh first"
 [ -r "$ENV_FILE" ] || fail "cannot read $ENV_FILE"
 
+# The services are stopped before the build, not after it.
+#
+# A Gradle build with its test JVMs, a Node build and two application JVMs do not fit alongside
+# MySQL and a broker on this host at the same time: the box was measured swapping so hard that its
+# SSH handshake timed out. Staggering them costs a few seconds of downtime during a deployment that
+# restarts the services anyway, and it removes the only configuration in which this host is
+# unusable. The window is bounded: everything after this point either succeeds and restarts the
+# services, or the script exits and the operator restarts them explicitly.
+log "stopping the services so the build has the machine to itself"
+DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" "$REPO_ROOT/scripts/service.sh" stop all || true
+
 log "building the release"
 # Stale directories from earlier runs are removed first: selecting "the last one" by name would
 # pick an older release whose version string happens to sort higher, which is how a deploy ends up
