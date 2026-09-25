@@ -88,7 +88,10 @@ class CapacityBoundIT {
                 futures[i] = pool.submit(() -> {
                     ready.countDown();
                     ready.await(15, TimeUnit.SECONDS);
-                    CapacitySnapshot counter = support.capacity.lock("processing");
+                    // The read and the write are two statements. The row lock taken by `lock` is
+                    // what has to hold until this thread's transaction ends; a caller that read the
+                    // counter without locking would be the bug this test is here to catch.
+                    CapacitySnapshot counter = support.capacity.lock("processing").orElse(null);
                     if (counter != null && counter.hasFreeSlot()) {
                         support.newTask(workspaceId, uploaderId, "concurrent-" + index);
                     }
