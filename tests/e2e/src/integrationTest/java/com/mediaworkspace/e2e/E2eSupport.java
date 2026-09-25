@@ -157,6 +157,21 @@ public final class E2eSupport implements AutoCloseable {
         return new RepositoryBundle(sessions.openSession(true));
     }
 
+    /**
+     * Empties every table and resets the capacity counter.
+     *
+     * <p>Called before each test method, and it is not tidiness. Several tests rely on
+     * {@code claim} returning the task they just created, but {@code claim} takes the oldest due
+     * task in the table: against a shared database it happily returned a task left behind by an
+     * earlier test in the same class. The assertions then ran against a row nobody had touched,
+     * which made some tests fail for a reason unrelated to what they were checking and made others
+     * pass without the behaviour under test happening at all. A test that passes vacuously is worse
+     * than one that fails, because it reports safety it never established.
+     */
+    public void reset() {
+        database.truncateAll();
+    }
+
     public TestDatabase database() {
         return database;
     }

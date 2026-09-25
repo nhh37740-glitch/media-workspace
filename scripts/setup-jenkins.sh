@@ -246,19 +246,14 @@ start_agent() {
   log "the agent did not report within the wait; check journalctl -u media-jenkins-agent"
 }
 
-# Three starts, each with a reason:
-#   1. the first applies the init scripts, which create the administrator account - and the plugin
-#      installation needs that account to authenticate;
-#   2. the second loads the plugins just installed, because a plugin's own extensions only come up
-#      on a fresh start;
-#   3. nothing else is restarted afterwards, so the job and agent work against the running instance.
-# The administrator account is recreated from the current environment file.
+# The account no longer has to be deleted to be repaired. 01-security.groovy reconciles the stored
+# password with JENKINS_ADMIN_PASSWORD on every start, because createAccount() resolves the account
+# with User.getById(name, true) and then replaces its Details property, so it writes the credential
+# it is given whether or not the account already exists. A restart alone corrects a stale hash.
 #
-# The account can be left in a state where its stored password no longer matches the environment:
-# an earlier run of the initialisation script wrote the account and then failed part way through,
-# and the password it used came from a file that has since been rewritten. Removing the account and
-# the realm configuration makes the next start recreate both from the value that is actually in the
-# environment now, which is the only value anyone can read.
+# RESET_ADMIN_ACCOUNT=1 is kept for the case where the realm configuration itself has to be built
+# from nothing: it removes users/ and config.xml so the next start constructs both from the
+# environment file. It is no longer needed to repair a password.
 if [ "${RESET_ADMIN_ACCOUNT:-0}" = "1" ]; then
   log "resetting the administrator account from the environment file"
   systemctl stop media-jenkins || true

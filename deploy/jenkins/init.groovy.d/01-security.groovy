@@ -85,6 +85,33 @@ if (matches) {
 
 instance.save()
 
+// The first-run setup wizard is stopped from running again, because it installs an administrator
+// account of its own that shadows the one above.
+//
+// That is what happened here. In $JENKINS_HOME, jenkins.install.UpgradeWizard.state was absent, and
+// InstallUtil.getDefaultInstallState() returns INITIAL_SECURITY_SETUP whenever that file is missing.
+// So a start without a config.xml did not stop at an unsecured controller: INITIAL_SECURITY_SETUP
+// ran SetupWizard.init(true), which installed its own HudsonPrivateSecurityRealm, created 'admin'
+// with a random UUID password, wrote that password to secrets/initialAdminPassword, and saved a
+// config.xml. This script then ran, found the realm already present and left the account alone, so
+// the password in the environment file never reached the account and every login was rejected with
+// 401. secrets/initialAdminPassword, dated at the moment of that start, is the record of it.
+//
+// Writing the file is what the official Docker image does for the same reason (`echo 2.0 >
+// .../jenkins.install.UpgradeWizard.state`). It is written only when absent, so a later upgrade of
+// the war still reaches the upgrade path instead of being forced to look like a restart.
+try {
+    def setupStateFile = new File(instance.getRootDir(), 'jenkins.install.UpgradeWizard.state')
+    if (!setupStateFile.exists()) {
+        setupStateFile.text = instance.getVersion().toString() + System.lineSeparator()
+        jenkins.install.InstallUtil.saveLastExecVersion()
+        println('[init] recorded first-time setup as complete; the setup wizard cannot recreate the ' +
+                'administrator account on a later start')
+    }
+} catch (Throwable failure) {
+    println("[init] could not record the setup state: ${failure.message}")
+}
+
 // The agent connects with a token issued by the controller, so the agent-to-controller command
 // channel has to be permitted. It is wrapped because the class that owns the switch has moved
 // between Jenkins versions, and a failure here must not abort the script after the account and the

@@ -46,6 +46,9 @@ class StaleExecutionIT {
 
     @BeforeEach
     void fixture() {
+        // Each test starts from an empty schema, so a claim can only return the task this test
+        // created. See E2eSupport#reset for why that matters.
+        support.reset();
         uploaderId = support.newUser("uploader");
         workspaceId = support.newWorkspace(uploaderId);
     }

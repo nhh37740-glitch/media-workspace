@@ -54,6 +54,9 @@ class DuplicateRequestEventIT {
 
     @BeforeEach
     void fixture() {
+        // Each test starts from an empty schema, so the inbox counts and the task state this test
+        // asserts on belong to it alone.
+        support.reset();
         uploaderId = support.newUser("uploader");
         workspaceId = support.newWorkspace(uploaderId);
     }
