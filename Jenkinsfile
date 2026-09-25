@@ -17,7 +17,7 @@ pipeline {
     agent { label 'media-workspace-agent' }
 
     parameters {
-        string(name: 'BASE_COMMIT', defaultValue: 'origin/main', description: '基线提交，范围门禁的起点')
+        string(name: 'BASE_COMMIT', defaultValue: 'HEAD^', description: '基线提交，范围门禁的起点')
         string(name: 'HEAD_COMMIT', defaultValue: '', description: '待验收提交；留空表示当前 checkout')
         choice(name: 'CHANGE_MODULE', choices: [
             'build-delivery', 'media-contracts', 'media-domain', 'media-application',

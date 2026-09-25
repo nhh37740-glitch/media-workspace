@@ -1,0 +1,41 @@
+# Jenkins inbound build agent for media-workspace.
+#
+# An inbound agent: it dials the controller, so no port is opened here for builds and the controller
+# holds no credential for reaching this machine. Separate user, separate working directory and
+# separate JVM options from the controller, as the delivery contract requires even when both run on
+# one host.
+#
+# The agent runs the toolchain the build needs - JDK 17 for the application and Node for the front
+# end - and is told where the runtime environment file is, so the integration stage can reach MySQL
+# and Kafka without any credential appearing in a command line.
+
+[Unit]
+Description=Jenkins inbound agent (media-workspace)
+After=network-online.target media-jenkins.service
+Wants=network-online.target
+Requires=media-jenkins.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/jenkins-agent
+Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Environment=MW_ENV_FILE=/opt/media-workspace/config/media-workspace.env
+Environment=DEPLOY_ROOT=/opt/media-workspace
+# The secret is read from a file written by the controller's own initialisation, so it never appears
+# in this unit, in a command line or in the repository.
+ExecStart=/bin/bash -c 'exec "$JAVA_HOME/bin/java" -Xms64m -Xmx256m -XX:+UseSerialGC \
+  -Dfile.encoding=UTF-8 -Duser.timezone=UTC \
+  -jar /opt/jenkins-agent/agent.jar \
+  -url http://127.0.0.1:8081/ \
+  -secret @/opt/jenkins/agent.secret \
+  -name media-workspace-agent \
+  -workDir /opt/jenkins-agent'
+Restart=on-failure
+RestartSec=15
+SuccessExitStatus=143
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target
