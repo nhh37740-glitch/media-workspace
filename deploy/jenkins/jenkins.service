@@ -1,0 +1,37 @@
+# Jenkins controller for media-workspace.
+#
+# Two settings are deliberate rather than default:
+#   * the controller is bound to loopback. It is an administrative interface; exposing it would put
+#     arbitrary code execution one login away from the internet. Reach it through an SSH tunnel.
+#   * it runs on JDK 21 while the project compiles with JDK 17. Jenkins' own requirements and the
+#     application's are separate, and the delivery contract says not to assume they can share one.
+#
+# The heap is capped at 384 MiB: the controller holds schedules, not builds. Executors are set to
+# zero in the configuration so no build runs here at all.
+
+[Unit]
+Description=Jenkins controller (media-workspace)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+Environment=JENKINS_HOME=/opt/jenkins
+Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+# Mirrors are used because the default update site is far away from this host. The signing key
+# check remains in force: the mirror serves the same signed metadata.
+Environment=JENKINS_UC=https://mirrors.tuna.tsinghua.edu.cn/jenkins/updates
+Environment=JENKINS_UC_DOWNLOAD=https://mirrors.tuna.tsinghua.edu.cn/jenkins
+Environment=JAVA_OPTS=-Xms128m -Xmx384m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC
+# The listen address and port are arguments rather than CLI options on the unit, so the bind is
+# visible next to the reason it is loopback-only.
+ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java $JAVA_OPTS -jar /opt/jenkins/jenkins.war --httpListenAddress=127.0.0.1 --httpPort=8081 --prefix=
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=143
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

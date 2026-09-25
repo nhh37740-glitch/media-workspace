@@ -1,0 +1,16 @@
+# Plugins the pipeline needs, and nothing more.
+#
+# The controller has 1 GiB of headroom on a host that also runs the application, MySQL and a broker,
+# and every plugin adds to the heap it must hold. Each entry below is required by a stage of the
+# Jenkinsfile rather than added on the chance it might be useful.
+workflow-aggregator
+workflow-job
+pipeline-stage-view
+git
+junit
+credentials
+credentials-binding
+matrix-auth
+timestamper
+lockable-resources
+ws-cleanup

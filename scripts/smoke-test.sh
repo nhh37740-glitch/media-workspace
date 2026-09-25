@@ -191,12 +191,27 @@ share_id="$(printf '%s' "$share_body" | json_field '["shareId"]')"
 share_token="$(printf '%s' "$share_body" | json_field '["token"]')"
 ok "share $share_id created (the token is not printed)"
 
+# A share is redeemed by a visitor with no account, so the exchange runs in its own cookie jar with
+# its own CSRF token. The token is bound to the session that requested it, so reusing the signed-in
+# user's token here would be rejected - which is the point of the check, not an obstacle to work
+# around. This mirrors what the share landing page does: fetch a token, then exchange.
 share_cookie="$(mktemp)"
-share_ok="$(curl -sS -o /dev/null -w '%{http_code}' -c "$share_cookie" \
-  -H "$CSRF_HEADER: $csrf" -H 'Content-Type: application/json' \
+share_csrf="$(curl -sS -b "$share_cookie" -c "$share_cookie" "$BASE_URL/api/v1/auth/csrf" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+share_ok="$(curl -sS -o /dev/null -w '%{http_code}' -b "$share_cookie" -c "$share_cookie" \
+  -H "$CSRF_HEADER: $share_csrf" -H 'Content-Type: application/json' \
   -d "{\"token\":\"$share_token\"}" "$BASE_URL/api/v1/public/share-access")"
 [ "$share_ok" = "200" ] || bad "redeeming the share returned $share_ok"
 ok "the share token was exchanged for a session"
+
+# A token minted for a different session must not be accepted: that is what makes the CSRF check
+# worth having rather than a formality.
+cross_session_status="$(curl -sS -o /dev/null -w '%{http_code}' -b "$share_cookie" -c "$share_cookie" \
+  -H "$CSRF_HEADER: $csrf" -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$share_token\"}" "$BASE_URL/api/v1/public/share-access")"
+[ "$cross_session_status" = "403" ] \
+  || bad "a CSRF token from another session was accepted ($cross_session_status)"
+ok "a CSRF token from another session is rejected"
 
 shared_bytes="$(curl -sS -o /dev/null -w '%{size_download}' -b "$share_cookie" \
   "$BASE_URL/api/v1/public/share-access/content")"
