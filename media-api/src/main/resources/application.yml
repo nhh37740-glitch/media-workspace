@@ -5,6 +5,11 @@
 # of silently connecting as some built-in account.
 server:
   port: ${HTTP_PORT:8080}
+  # Loopback only. Nginx is the single public entry point: it serves the static application, forwards
+  # the API, and is the only place a request is terminated. An API listening on every interface would
+  # be reachable directly, bypassing the reverse proxy and exposing a second entry point that the
+  # deployment's threat model does not account for.
+  address: ${HTTP_ADDRESS:127.0.0.1}
   shutdown: graceful
   max-http-request-header-size: 16KB
   tomcat:

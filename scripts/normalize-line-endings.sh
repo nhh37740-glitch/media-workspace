@@ -11,7 +11,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-EXTENSIONS='sh|bash|java|gradle|json|sql|yml|yaml|properties|md|feature|xml|conf|opts|toml|gitignore|gitattributes|txt|css|js|ts|vue|html'
+# `service` is in the list because the systemd units under deploy/jenkins are shipped files: systemd
+# does not strip a trailing CR, so a unit that was converted to CRLF fails with errors about
+# unknown keys, and the sync script's own CR check looks at *.sh only.
+EXTENSIONS='sh|bash|java|gradle|json|sql|yml|yaml|properties|md|feature|xml|conf|opts|toml|gitignore|gitattributes|txt|css|js|ts|vue|html|service'
 
 converted=0
 while IFS= read -r file; do
