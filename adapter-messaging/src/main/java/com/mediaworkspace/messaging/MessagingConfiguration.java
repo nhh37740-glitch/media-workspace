@@ -76,9 +76,9 @@ public class MessagingConfiguration {
     }
 
     @Bean
-    public EventPublisher eventPublisher(KafkaTemplate<String, String> kafkaTemplate,
+    public EventPublisher eventPublisher(KafkaTemplate<String, String> kafkaTemplate, TopicNames topicNames,
                                          @Value("${mediaworkspace.kafka.send-timeout-ms:15000}") long sendTimeoutMs) {
-        return new KafkaEventPublisher(kafkaTemplate, Duration.ofMillis(sendTimeoutMs));
+        return new KafkaEventPublisher(kafkaTemplate, topicNames, Duration.ofMillis(sendTimeoutMs));
     }
 
     @Bean

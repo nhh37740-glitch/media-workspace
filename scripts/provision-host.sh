@@ -62,7 +62,10 @@ DB_TEST_NAME=media_workspace_test
 DB_USER=media_app
 DB_PASSWORD=__GENERATED__
 KAFKA_BOOTSTRAP=127.0.0.1:9092
-KAFKA_TOPIC_PREFIX=mw
+# Empty for the demonstration deployment, so the topics carry exactly the names the contract
+# specifies. The prefix exists so an integration run can share this broker without colliding with
+# the demo topics or its consumer groups; setting it here would rename the demo topics instead.
+KAFKA_TOPIC_PREFIX=
 STORAGE_ROOT=/opt/media-workspace/var/storage
 HTTP_PORT=8080
 WORKER_HEALTH_PORT=8090

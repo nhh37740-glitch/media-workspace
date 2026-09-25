@@ -22,26 +22,45 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>A send is awaited. Returning before the broker acknowledged would let the publisher mark the
  * outbox row as delivered for a record that was never written.
+ *
+ * <p>The environment prefix is applied <b>here</b>, at the moment of sending, and not when the
+ * outbox row is written. The row therefore stores the logical topic name, which stays valid if the
+ * prefix changes - and, more importantly, this is the single place where publishing resolves the
+ * name. Resolving it in the producer and in the consumer by two different routes is exactly how the
+ * producer came to write to {@code media.task.requested.v1} while the worker listened on
+ * {@code mwmedia.task.requested.v1}: the event was accepted by the broker and never consumed.
  */
 public class KafkaEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaEventPublisher.class);
 
     private final KafkaTemplate<String, String> template;
+    private final TopicNames topics;
     private final Duration sendTimeout;
 
-    public KafkaEventPublisher(KafkaTemplate<String, String> template, Duration sendTimeout) {
+    public KafkaEventPublisher(KafkaTemplate<String, String> template, TopicNames topics,
+                               Duration sendTimeout) {
         this.template = template;
+        this.topics = topics;
         this.sendTimeout = sendTimeout;
     }
 
     @Override
-    public void publish(String topic, String key, String payload) throws PublishFailedException {
+    public void publish(String logicalTopic, String key, String payload) throws PublishFailedException {
+        String topic = topics.resolve(logicalTopic);
         try {
             SendResult<String, String> result = template.send(topic, key, payload)
                     .get(sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
-            log.debug("event acknowledged: topic={} partition={} offset={}",
-                    topic, result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
+            // Guarded because a diagnostic must never be able to fail a delivery. A client that
+            // answers with a bare future is unusual, but a log line dereferencing it would turn
+            // "message sent" into an exception.
+            if (result != null) {
+                log.debug("event acknowledged: topic={} partition={} offset={}",
+                        topic, result.getRecordMetadata().partition(),
+                        result.getRecordMetadata().offset());
+            } else {
+                log.debug("event acknowledged: topic={} (the client did not report a partition)", topic);
+            }
         } catch (TimeoutException e) {
             throw new PublishFailedException("the broker did not acknowledge within " + sendTimeout, e);
         } catch (InterruptedException e) {

@@ -99,14 +99,28 @@ for module in media-contracts media-domain media-application \
   fi
 done
 
-if [ "$SKIP_WEB" != "1" ] && [ -d web/dist ]; then
-  log "collecting the web build"
-  cp -r web/dist/. "$RELEASE_DIR/web/"
-elif [ -d "${WEB_DIST_DIR:-}" ]; then
-  log "collecting the web build from $WEB_DIST_DIR"
-  cp -r "$WEB_DIST_DIR"/. "$RELEASE_DIR/web/"
-else
-  log "no web build present; the release will not contain a front end"
+# The front end is built here, not collected from whatever happened to be in web/dist. A stale
+# directory would otherwise be packaged and silently shipped as the current interface, which is the
+# kind of mismatch that survives every test because nothing checks the artifact's contents.
+if [ "$SKIP_WEB" != "1" ]; then
+  if [ -n "${WEB_DIST_DIR:-}" ]; then
+    log "collecting the web build from $WEB_DIST_DIR"
+    cp -r "$WEB_DIST_DIR"/. "$RELEASE_DIR/web/"
+  elif [ -f web/package-lock.json ]; then
+    log "building the front end with npm ci"
+    ( cd web && npm ci --no-audit --no-fund && npm test -- --run && npm run build )
+    cp -r web/dist/. "$RELEASE_DIR/web/"
+  else
+    log "no web/package-lock.json and no WEB_DIST_DIR; the release will not contain a front end"
+  fi
+fi
+
+if [ -d "$RELEASE_DIR/web" ]; then
+  file_count="$(find "$RELEASE_DIR/web" -type f | wc -l)"
+  log "the front end contains $file_count file(s)"
+  if [ "$file_count" -eq 0 ]; then
+    log "WARNING: the web directory of this release is empty"
+  fi
 fi
 
 log "collecting configuration templates and scripts"
