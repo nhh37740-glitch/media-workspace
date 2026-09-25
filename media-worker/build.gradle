@@ -12,6 +12,10 @@ dependencies {
 
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // A servlet container, bound to loopback, only so the actuator health endpoint exists. A worker
+    // whose database is unreachable must stop claiming, and an operator needs a way to see that
+    // without reading the log. This is not a business port: it serves no application route.
+    implementation 'org.springframework.boot:spring-boot-starter-web'
 }
 
 bootJar {

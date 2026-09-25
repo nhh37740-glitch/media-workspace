@@ -107,7 +107,8 @@ public class MessagingConfiguration {
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, String> orderedRecordListenerContainerFactory(
             ConsumerFactory<String, String> consumerFactory,
-            @Value("${mediaworkspace.kafka.listener-concurrency:1}") int concurrency) {
+            @Value("${mediaworkspace.kafka.listener-concurrency:1}") int concurrency,
+            @Value("${mediaworkspace.kafka.listener-auto-startup:true}") boolean autoStartup) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
@@ -117,6 +118,13 @@ public class MessagingConfiguration {
         factory.getContainerProperties().setMissingTopicsFatal(false);
         factory.getContainerProperties().setShutdownTimeout(20_000L);
         factory.getContainerProperties().setPollTimeout(1_000L);
+        // This factory is constructed here rather than by Boot, so Boot's own
+        // spring.kafka.listener.auto-startup property does not reach it. The setting is therefore
+        // exposed under this project's own prefix, which is what lets the bootstrap command run
+        // without consumer threads - those threads are not daemons and would keep an otherwise
+        // finished process alive forever. Auto-startup belongs to the factory, not to the container
+        // properties, because it decides whether a container is started at all.
+        factory.setAutoStartup(autoStartup);
         return factory;
     }
 }

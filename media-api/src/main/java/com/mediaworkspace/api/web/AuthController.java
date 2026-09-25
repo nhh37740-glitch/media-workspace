@@ -85,8 +85,10 @@ public class AuthController {
         // Creates the session if there is none and adopts the authenticated context into it.
         httpRequest.getSession(true);
 
-        return ResponseEntity.ok(new UserView(String.valueOf(authentication.getPrincipal()),
-                request.username()));
+        // The principal's name is the user id, which is what every later authorization decision
+        // keys on; the principal object itself is a framework type whose string form is not an
+        // identifier.
+        return ResponseEntity.ok(new UserView(authentication.getName(), request.username()));
     }
 
     /** Signs out: the session is invalidated, so the cookie is useless afterwards. */

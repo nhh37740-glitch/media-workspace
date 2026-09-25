@@ -11,8 +11,8 @@ spring:
   application:
     name: media-worker
   main:
-    # The worker has no web container beyond the health endpoint, so it is not started eagerly;
-    # it has no servlet stack for a task to depend on.
+    # A servlet container is present only for the actuator health endpoint, and it is bound to
+    # loopback by `server.address` above. The worker serves no application route.
     web-application-type: servlet
   lifecycle:
     timeout-per-shutdown-phase: 30s

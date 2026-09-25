@@ -65,10 +65,34 @@ KAFKA_BOOTSTRAP=127.0.0.1:9092
 KAFKA_TOPIC_PREFIX=mw
 STORAGE_ROOT=/opt/media-workspace/var/storage
 HTTP_PORT=8080
+WORKER_HEALTH_PORT=8090
+# Demonstration account passwords. Generated here, stored only in this file, never committed and
+# never printed. The bootstrap command refuses to create an account without one.
+MW_PASSWORD_OWNER=__PW1__
+MW_PASSWORD_EDITOR=__PW2__
+MW_PASSWORD_VIEWER=__PW3__
+MW_PASSWORD_OUTSIDER=__PW4__
 ENVEOF
-    generated="$(openssl rand -hex 24)"
     sed -i "s/__GENERATED__/${generated}/" "$ENV_FILE"
+    for placeholder in __PW1__ __PW2__ __PW3__ __PW4__; do
+      # Each account gets its own random password: reusing one would make a leak of any account a
+      # leak of all four, and the acceptance cases rely on them being genuinely separate identities.
+      sed -i "s/${placeholder}/$(openssl rand -hex 16)/" "$ENV_FILE"
+    done
   fi
+  # Top up keys added by a later version of this script, without touching the ones already there.
+  # Rewriting the file would rotate the database password and lock the application out of its own
+  # schema, so existing values are never regenerated.
+  add_missing_key() {
+    local key="$1" value="$2"
+    grep -qE "^${key}=" "$ENV_FILE" || printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+  }
+  add_missing_key WORKER_HEALTH_PORT 8090
+  add_missing_key MW_PASSWORD_OWNER "$(openssl rand -hex 16)"
+  add_missing_key MW_PASSWORD_EDITOR "$(openssl rand -hex 16)"
+  add_missing_key MW_PASSWORD_VIEWER "$(openssl rand -hex 16)"
+  add_missing_key MW_PASSWORD_OUTSIDER "$(openssl rand -hex 16)"
+
   chmod 0640 "$ENV_FILE"
   chgrp ubuntu "$ENV_FILE" 2>/dev/null || true
 
@@ -102,7 +126,10 @@ install_kafka() {
 
   mkdir -p "$KAFKA_LOG_DIR"
   chown ubuntu:ubuntu "$KAFKA_LOG_DIR"
+  # The shared media volume the API and the worker both mount, plus the run and log directories.
+  install -d -o ubuntu -g ubuntu "$DEPLOY_ROOT/var/storage"
   install -d -o ubuntu -g ubuntu "$DEPLOY_ROOT/var/run"
+  install -d -o ubuntu -g ubuntu "$DEPLOY_ROOT/var/logs/api" "$DEPLOY_ROOT/var/logs/worker"
 
   sed "s|@KAFKA_LOG_DIR@|${KAFKA_LOG_DIR}|" \
     "$(dirname "$0")/../deploy/kafka/server.properties" > "$KAFKA_HOME/config/kraft-media-workspace.properties"

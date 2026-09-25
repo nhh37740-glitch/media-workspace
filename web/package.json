@@ -1,0 +1,29 @@
+{
+  "name": "media-workspace-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser client for media-workspace. Serves four pages plus a share landing page; the server remains the authority on permissions and task state.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "element-plus": "2.14.6",
+    "vue": "3.5.43",
+    "vue-router": "4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.9",
+    "@vue/test-utils": "2.5.1",
+    "jsdom": "30.1.1",
+    "vite": "8.3.1",
+    "vitest": "5.0.1"
+  }
+}

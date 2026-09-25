@@ -27,16 +27,26 @@ public class CurrentUser {
     /**
      * The signed-in user's id.
      *
+     * <p>{@code getName()} is used, not the principal object. The principal is a framework
+     * {@code UserDetails} whose {@code toString()} renders something like
+     * {@code User [Username=…, Password=[PROTECTED], …]}; passing that as an identifier produced a
+     * value far too long for the column it was written to, and the failure surfaced as a database
+     * truncation rather than as an authentication problem. The name is the identifier this project
+     * put into the principal in the first place.
+     *
      * @throws ApplicationException with {@code AUTH_REQUIRED} when there is no session
      */
     public String requireId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()
-                || authentication.getPrincipal() == null
                 || "anonymousUser".equals(authentication.getPrincipal())) {
             throw new ApplicationException(ApiErrorCode.AUTH_REQUIRED, "authentication is required");
         }
-        return String.valueOf(authentication.getPrincipal());
+        String name = authentication.getName();
+        if (name == null || name.isBlank()) {
+            throw new ApplicationException(ApiErrorCode.AUTH_REQUIRED, "authentication is required");
+        }
+        return name;
     }
 
     /** The signed-in user as the identity endpoint reports it. */

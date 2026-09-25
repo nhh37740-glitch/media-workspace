@@ -165,6 +165,9 @@ public class WorkerConfiguration {
      * <p>Four threads so a pass that blocks on the database cannot stop the lease renewal: a renewal
      * delayed behind a stuck maintenance pass would let a valid lease lapse and hand a running task
      * to a second worker.
+     *
+     * <p>Marked as daemon so a shutdown that is skipped cannot leave the process alive on these
+     * threads. The worker's normal shutdown path still drains in-flight executions explicitly.
      */
     @Bean
     public ThreadPoolTaskScheduler taskScheduler() {
@@ -174,6 +177,7 @@ public class WorkerConfiguration {
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.setAwaitTerminationSeconds(20);
         scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setDaemon(true);
         return scheduler;
     }
 }
