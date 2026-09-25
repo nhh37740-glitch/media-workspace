@@ -105,18 +105,25 @@ class CancellationRaceIT {
         // Both transactions begin before either commits, so the row lock decides the order. The
         // barrier does not guarantee which wins, which is the point: the assertion is that the
         // result is one of the two legal end states and never a mixture.
+        //
+        // Each caller gets its own session: on a shared connection the two calls would queue behind
+        // each other in the harness and the test would pass without the database serializing them.
         CountDownLatch ready = new CountDownLatch(2);
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<Boolean> cancel = pool.submit(() -> {
                 ready.countDown();
                 ready.await(10, TimeUnit.SECONDS);
-                return support.tasks.cancel(fixture.taskId(), "USER_REQUEST");
+                try (E2eSupport.RepositoryBundle bundle = support.newRepositories()) {
+                    return bundle.tasks.cancel(fixture.taskId(), "USER_REQUEST");
+                }
             });
             Future<Boolean> publish = pool.submit(() -> {
                 ready.countDown();
                 ready.await(10, TimeUnit.SECONDS);
-                return support.tasks.complete(lease, artifacts(), lease.attemptId());
+                try (E2eSupport.RepositoryBundle bundle = support.newRepositories()) {
+                    return bundle.tasks.complete(lease, artifacts(), lease.attemptId());
+                }
             });
 
             boolean cancelled = cancel.get(30, TimeUnit.SECONDS);

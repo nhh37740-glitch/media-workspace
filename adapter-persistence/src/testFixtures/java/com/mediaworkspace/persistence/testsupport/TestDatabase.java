@@ -49,7 +49,10 @@ public final class TestDatabase implements AutoCloseable {
         config.setJdbcUrl(environment.jdbcUrl());
         config.setUsername(environment.username());
         config.setPassword(environment.password());
-        config.setMaximumPoolSize(4);
+        // Large enough for the concurrency tests, which open a session per thread on purpose: a row
+        // lock can only be shown to serialize callers if the callers really are on separate
+        // connections. The application's own pools are far smaller; this one is a test harness.
+        config.setMaximumPoolSize(12);
         config.setPoolName("mw-it-" + environment.schema());
         return new TestDatabase(environment, new HikariDataSource(config));
     }

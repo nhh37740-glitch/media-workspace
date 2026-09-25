@@ -88,12 +88,15 @@ class CapacityBoundIT {
                 futures[i] = pool.submit(() -> {
                     ready.countDown();
                     ready.await(15, TimeUnit.SECONDS);
-                    // The read and the write are two statements. The row lock taken by `lock` is
-                    // what has to hold until this thread's transaction ends; a caller that read the
-                    // counter without locking would be the bug this test is here to catch.
-                    CapacitySnapshot counter = support.capacity.lock("processing").orElse(null);
-                    if (counter != null && counter.hasFreeSlot()) {
-                        support.newTask(workspaceId, uploaderId, "concurrent-" + index);
+                    // Each caller uses its own session and therefore its own connection, which is
+                    // what makes the row lock meaningful: a shared connection would serialize the
+                    // callers in the test harness and prove nothing about the database. A caller
+                    // that read the counter without locking it is the bug this test exists to catch.
+                    try (E2eSupport.RepositoryBundle bundle = support.newRepositories()) {
+                        CapacitySnapshot counter = bundle.capacity.lock("processing").orElse(null);
+                        if (counter != null && counter.hasFreeSlot()) {
+                            support.newTask(bundle, workspaceId, uploaderId, "concurrent-" + index);
+                        }
                     }
                     return null;
                 });

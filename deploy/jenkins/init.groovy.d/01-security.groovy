@@ -22,41 +22,73 @@ if (!adminPassword) {
     // put into a state that serves nothing useful until an operator supplies the value.
     println('[init] JENKINS_ADMIN_PASSWORD is not set; security is left unconfigured and the ' +
             'controller will refuse to serve the pipeline')
-    instance.setAuthorizationStrategy(
-            new FullControlOnceLoggedInAuthorizationStrategy().with { it.denyAnonymousReadAccess = true; it })
+    def refused = new FullControlOnceLoggedInAuthorizationStrategy()
+    refused.setAllowAnonymousRead(false)
+    instance.setAuthorizationStrategy(refused)
     instance.save()
     return
 }
 
-// The realm is configured only when it is not already this kind. Comparing against the "no
-// authentication" sentinel by name does not compile against every Jenkins version - the nested
-// class has moved - so the check is made the other way round, on the realm that this script itself
-// would have installed. A second start therefore leaves the existing accounts alone.
-if (!(instance.getSecurityRealm() instanceof HudsonPrivateSecurityRealm)) {
-    def realm = new HudsonPrivateSecurityRealm(false)
-    realm.createAccount(adminUser, adminPassword)
+// The realm is created when it is not already this kind. Comparing against the "no authentication"
+// sentinel by name does not compile against every Jenkins version - the nested class has moved - so
+// the check is made the other way round, on the realm that this script itself would have installed.
+def realm = instance.getSecurityRealm()
+if (!(realm instanceof HudsonPrivateSecurityRealm)) {
+    realm = new HudsonPrivateSecurityRealm(false)
     instance.setSecurityRealm(realm)
-    println("[init] created the administrator account '${adminUser}'")
-} else {
-    println('[init] the administrator account already exists; leaving it in place')
 }
 
+// Anonymous read access is denied by setting allowAnonymousRead to false. The setter under the
+// inverse name does not exist on Jenkins 2.568.3:
+//
+//   groovy.lang.MissingMethodException: No signature of method:
+//   hudson.security.FullControlOnceLoggedInAuthorizationStrategy.setDenyAnonymousReadAccess()
+//   is applicable for argument types: (java.lang.Boolean) values: [true]
+//
+// That call aborted this script at the line it ran on, which is above setNumExecutors, above
+// setSlaveAgentPort and above save(). Every start therefore logged "Failed to run script" and left
+// the controller on its default of two executors.
 def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
-strategy.setDenyAnonymousReadAccess(true)
+strategy.setAllowAnonymousRead(false)
 instance.setAuthorizationStrategy(strategy)
 
 // Zero executors: the controller schedules, it does not build. A build running here would compete
 // with the controller's own work and, on this host, with the application itself.
 instance.setNumExecutors(0)
-instance.setSlaveAgentPort(-1) // an inbound agent connects to the HTTP port
+// No TCP agent port: the agent reaches the controller over the HTTP port using WebSocket.
+instance.setSlaveAgentPort(-1)
+
+// Written before anything below it runs, so a failure in a later section cannot leave the
+// controller without the security configuration above.
+instance.save()
+
+// The credential is reconciled with the environment on every start, not only when the realm is
+// first created. createAccount() resolves the account with User.getById(name, true) and then
+// replaces that user's Details property, so it writes the password it is given whether or not the
+// account already exists. Calling it only on first creation leaves an account written by an earlier
+// start holding a hash that no longer matches the value in the environment file, and the operator
+// who can read that file is rejected with 401.
+def matches = false
+if (realm.getUser(adminUser) != null) {
+    try {
+        matches = realm.load(adminUser).isPasswordCorrect(adminPassword)
+    } catch (Throwable failure) {
+        matches = false
+    }
+}
+if (matches) {
+    println("[init] the administrator account '${adminUser}' already matches the environment")
+} else {
+    realm.createAccount(adminUser, adminPassword)
+    println("[init] wrote the administrator credential for '${adminUser}' from the environment")
+}
 
 instance.save()
 
 // The agent connects with a token issued by the controller, so the agent-to-controller command
 // channel has to be permitted. It is wrapped because the class that owns the switch has moved
 // between Jenkins versions, and a failure here must not abort the script after the account and the
-// authorization strategy have already been written - which is how a controller came to have an
-// account whose password nobody could authenticate with reliably.
+// authorization strategy have already been written.
 try {
     def rules = instance.getExtensionList(AdminWhitelistRule.class)
     if (!rules.isEmpty()) {

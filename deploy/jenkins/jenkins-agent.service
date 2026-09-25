@@ -26,12 +26,18 @@ Environment=MW_ENV_FILE=/opt/media-workspace/config/media-workspace.env
 Environment=DEPLOY_ROOT=/opt/media-workspace
 # The secret is read from a file written by the controller's own initialisation, so it never appears
 # in this unit, in a command line or in the repository.
+#
+# -webSocket is required, not optional. The controller opens no TCP agent port - its configuration
+# sets slaveAgentPort to -1 - so the only endpoint an agent can reach is the WebSocket one on the
+# controller's HTTP port. Without this flag the agent tries the TCP protocol, finds nothing
+# listening and retries until the unit is restarted.
 ExecStart=/bin/bash -c 'exec "$JAVA_HOME/bin/java" -Xms64m -Xmx256m -XX:+UseSerialGC \
   -Dfile.encoding=UTF-8 -Duser.timezone=UTC \
   -jar /opt/jenkins-agent/agent.jar \
   -url http://127.0.0.1:8081/ \
   -secret @/opt/jenkins/agent.secret \
   -name media-workspace-agent \
+  -webSocket \
   -workDir /opt/jenkins-agent'
 Restart=on-failure
 RestartSec=15

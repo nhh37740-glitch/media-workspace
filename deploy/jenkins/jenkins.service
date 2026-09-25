@@ -6,7 +6,7 @@
 #   * it runs on JDK 21 while the project compiles with JDK 17. Jenkins' own requirements and the
 #     application's are separate, and the delivery contract says not to assume they can share one.
 #
-# The heap is capped at 384 MiB: the controller holds schedules, not builds. Executors are set to
+# The heap is capped at 320 MiB: the controller holds schedules, not builds. Executors are set to
 # zero in the configuration so no build runs here at all.
 
 [Unit]
@@ -25,10 +25,11 @@ Environment=JENKINS_HOME=/opt/jenkins
 # administrative endpoint.
 EnvironmentFile=/opt/media-workspace/config/media-workspace.env
 Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
-# Mirrors are used because the default update site is far away from this host. The signing key
-# check remains in force: the mirror serves the same signed metadata.
-Environment=JENKINS_UC=https://mirrors.tuna.tsinghua.edu.cn/jenkins/updates
-Environment=JENKINS_UC_DOWNLOAD=https://mirrors.tuna.tsinghua.edu.cn/jenkins
+# The update site is deliberately NOT set here. JENKINS_UC and JENKINS_UC_DOWNLOAD were read by
+# older Jenkins releases; neither string occurs anywhere in jenkins-core 2.568.3, so setting them
+# had no effect on which site the controller used. The site that is actually consulted is the one
+# recorded in $JENKINS_HOME/hudson.model.UpdateCenter.xml, left at its default. Plugins are
+# installed from scripts/setup-jenkins.sh.
 Environment=JAVA_OPTS=-Xms96m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC
 # The listen address and port are arguments rather than CLI options on the unit, so the bind is
 # visible next to the reason it is loopback-only.
