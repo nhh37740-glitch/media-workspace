@@ -19,6 +19,11 @@ Type=simple
 User=ubuntu
 Group=ubuntu
 Environment=JENKINS_HOME=/opt/jenkins
+# The initialisation scripts read the administrator password, the agent name and the agent's secret
+# path from the environment. Without this the realm is left unconfigured, which the controller
+# reports and then refuses to serve - correctly, since the alternative is an unauthenticated
+# administrative endpoint.
+EnvironmentFile=/opt/media-workspace/config/media-workspace.env
 Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 # Mirrors are used because the default update site is far away from this host. The signing key
 # check remains in force: the mirror serves the same signed metadata.

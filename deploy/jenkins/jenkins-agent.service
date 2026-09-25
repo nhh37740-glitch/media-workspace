@@ -21,6 +21,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/opt/jenkins-agent
 Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+EnvironmentFile=/opt/media-workspace/config/media-workspace.env
 Environment=MW_ENV_FILE=/opt/media-workspace/config/media-workspace.env
 Environment=DEPLOY_ROOT=/opt/media-workspace
 # The secret is read from a file written by the controller's own initialisation, so it never appears
