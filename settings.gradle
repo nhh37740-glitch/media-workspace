@@ -15,3 +15,7 @@ include 'adapter-transcode'
 include 'adapter-storage'
 include 'media-api'
 include 'media-worker'
+
+// End-to-end and fault-injection tests. Owned by build-delivery: they exercise several modules
+// together, so attributing a failure to one of them from here would be guessing.
+include 'tests:e2e'

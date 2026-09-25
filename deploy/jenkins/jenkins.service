@@ -24,7 +24,7 @@ Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 # check remains in force: the mirror serves the same signed metadata.
 Environment=JENKINS_UC=https://mirrors.tuna.tsinghua.edu.cn/jenkins/updates
 Environment=JENKINS_UC_DOWNLOAD=https://mirrors.tuna.tsinghua.edu.cn/jenkins
-Environment=JAVA_OPTS=-Xms128m -Xmx384m -XX:MaxMetaspaceSize=192m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC
+Environment=JAVA_OPTS=-Xms96m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC
 # The listen address and port are arguments rather than CLI options on the unit, so the bind is
 # visible next to the reason it is loopback-only.
 ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java $JAVA_OPTS -jar /opt/jenkins/jenkins.war --httpListenAddress=127.0.0.1 --httpPort=8081 --prefix=

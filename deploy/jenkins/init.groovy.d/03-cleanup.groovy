@@ -8,9 +8,7 @@
 // it after every build, and doing it in two places would make a build that failed mid-checkout
 // harder to diagnose.
 
-import hudson.model.Job
 import jenkins.model.Jenkins
-import org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty
 
 def instance = Jenkins.get()
 

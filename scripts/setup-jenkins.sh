@@ -99,7 +99,7 @@ install_plugins() {
   plugins="$(grep -vE '^\s*(#|$)' "$REPO_ROOT/deploy/jenkins/plugins.txt" | tr '\n' ' ')"
 
   set +e
-  java -jar "$cli_jar" -s "$JENKINS_URL" -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" \
+  java -jar "$cli_jar" -s "$JENKINS_URL" -http -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" \
     install-plugin $plugins -deploy 2>&1 | tail -5
   local status=$?
   set -e
@@ -115,7 +115,7 @@ wait_for_plugins() {
   curl -sSf -o "$cli_jar" "$JENKINS_URL/jnlpJars/jenkins-cli.jar" 2>/dev/null || return 0
   for _ in $(seq 1 60); do
     local output
-    output="$(java -jar "$cli_jar" -s "$JENKINS_URL" \
+    output="$(java -jar "$cli_jar" -s "$JENKINS_URL" -http \
       -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" list-plugins 2>/dev/null || true)"
     if printf '%s' "$output" | grep -q '^workflow-aggregator'; then
       log "the pipeline plugin is present"
@@ -204,9 +204,9 @@ create_job() {
 </flow-definition>
 XML
 
-  java -jar "$cli_jar" -s "$JENKINS_URL" -auth "$auth" \
+  java -jar "$cli_jar" -s "$JENKINS_URL" -http -auth "$auth" \
     create-job media-workspace < "$job_xml" 2>/dev/null \
-    || java -jar "$cli_jar" -s "$JENKINS_URL" -auth "$auth" \
+    || java -jar "$cli_jar" -s "$JENKINS_URL" -http -auth "$auth" \
          update-job media-workspace < "$job_xml"
   rm -f "$cli_jar" "$job_xml"
   log "the pipeline job 'media-workspace' exists"
@@ -228,7 +228,7 @@ start_agent() {
     local cli_jar=/tmp/jenkins-cli.jar
     curl -sSf -o "$cli_jar" "$JENKINS_URL/jnlpJars/jenkins-cli.jar" 2>/dev/null || true
     local output
-    output="$(java -jar "$cli_jar" -s "$JENKINS_URL" \
+    output="$(java -jar "$cli_jar" -s "$JENKINS_URL" -http \
       -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" \
       get-node media-workspace-agent 2>/dev/null || true)"
     rm -f "$cli_jar"

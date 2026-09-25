@@ -1,0 +1,29 @@
+// End-to-end and fault-injection tests.
+//
+// These exercise several modules at once against real MySQL and Kafka, so they belong to the
+// engineering module rather than to any one of the modules they touch: a failure here says the
+// cooperation is wrong, and attributing it to a single module from this vantage point would be a
+// guess rather than a location.
+//
+// They are integration tests, not browser tests. The browser-level chain is covered by
+// scripts/smoke-test.sh, which runs against the deployed services.
+dependencies {
+    integrationTestImplementation project(':adapter-persistence')
+    integrationTestImplementation testFixtures(project(':adapter-persistence'))
+    integrationTestImplementation project(':adapter-messaging')
+    integrationTestImplementation project(':media-application')
+    integrationTestImplementation project(':media-domain')
+    integrationTestImplementation project(':media-contracts')
+    integrationTestImplementation libs.spring.kafka
+    integrationTestImplementation libs.spring.boot.starter.test
+    integrationTestImplementation libs.mysql.connector.j
+}
+
+// The fault tests take their time: they kill things, wait for leases to lapse and let recovery
+// runs happen. The per-test default is far too short for that.
+tasks.named('integrationTest') {
+    maxHeapSize = '384m'
+    systemProperty 'mediaworkspace.integration.required', 'true'
+    // A fault test that times out is a failure, not a slow pass.
+    timeout = java.time.Duration.ofMinutes(20)
+}

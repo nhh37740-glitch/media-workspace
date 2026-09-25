@@ -9,7 +9,6 @@
 
 import hudson.security.FullControlOnceLoggedInAuthorizationStrategy
 import hudson.security.HudsonPrivateSecurityRealm
-import hudson.security.SecurityRealm
 import jenkins.model.Jenkins
 import jenkins.security.s2m.AdminWhitelistRule
 
@@ -29,14 +28,17 @@ if (!adminPassword) {
     return
 }
 
-def realm = new HudsonPrivateSecurityRealm(false)
-if (instance.getSecurityRealm() == SecurityRealm.NO_AUTHENTICATION ||
-        instance.getSecurityRealm() instanceof SecurityRealm.NoAuthentication) {
+// The realm is configured only when it is not already this kind. Comparing against the "no
+// authentication" sentinel by name does not compile against every Jenkins version - the nested
+// class has moved - so the check is made the other way round, on the realm that this script itself
+// would have installed. A second start therefore leaves the existing accounts alone.
+if (!(instance.getSecurityRealm() instanceof HudsonPrivateSecurityRealm)) {
+    def realm = new HudsonPrivateSecurityRealm(false)
     realm.createAccount(adminUser, adminPassword)
     instance.setSecurityRealm(realm)
     println("[init] created the administrator account '${adminUser}'")
 } else {
-    println('[init] a security realm is already configured; leaving it in place')
+    println('[init] the administrator account already exists; leaving it in place')
 }
 
 def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
