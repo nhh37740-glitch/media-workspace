@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mediaworkspace.persistence.mapper.ShareMapper">
+
+    <sql id="linkColumns">
+        l.id         AS id,
+        l.media_id   AS mediaId,
+        l.creator_id AS creatorId,
+        l.token_hash AS tokenHash,
+        l.expires_at AS expiresAt,
+        l.revoked_at AS revokedAt,
+        l.created_at AS createdAt
+    </sql>
+
+    <insert id="insertLink">
+        INSERT INTO share_link (id, media_id, creator_id, token_hash, expires_at, created_at)
+        VALUES (#{l.id}, #{l.mediaId}, #{l.creatorId}, #{l.tokenHash}, #{l.expiresAt}, UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findLinkById" resultType="com.mediaworkspace.application.model.ShareLinkRecord">
+        SELECT <include refid="linkColumns"/> FROM share_link l WHERE l.id = #{shareId}
+    </select>
+
+    <select id="findLinkByTokenHash" resultType="com.mediaworkspace.application.model.ShareLinkRecord">
+        SELECT <include refid="linkColumns"/> FROM share_link l WHERE l.token_hash = #{tokenHash}
+    </select>
+
+    <select id="listByMedia" resultType="com.mediaworkspace.application.model.ShareLinkRecord">
+        SELECT <include refid="linkColumns"/> FROM share_link l
+        WHERE l.media_id = #{mediaId}
+        ORDER BY l.created_at DESC, l.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countActiveForMedia" resultType="long">
+        SELECT COUNT(*) FROM share_link
+        WHERE media_id = #{mediaId} AND revoked_at IS NULL AND expires_at &gt; UTC_TIMESTAMP(6)
+    </select>
+
+    <update id="revoke">
+        UPDATE share_link
+        SET revoked_at = UTC_TIMESTAMP(6)
+        WHERE id = #{shareId} AND revoked_at IS NULL
+    </update>
+
+    <insert id="insertSession">
+        INSERT INTO share_session (id, share_id, media_id, expires_at, created_at)
+        VALUES (#{s.id}, #{s.shareId}, #{s.mediaId}, #{s.expiresAt}, UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findSessionById" resultType="com.mediaworkspace.application.model.ShareSession">
+        SELECT s.id AS id, s.share_id AS shareId, s.media_id AS mediaId, s.expires_at AS expiresAt
+        FROM share_session s WHERE s.id = #{sessionId}
+    </select>
+
+    <delete id="deleteExpiredSessions">
+        DELETE FROM share_session
+        WHERE expires_at &lt; UTC_TIMESTAMP(6)
+        LIMIT #{limit}
+    </delete>
+
+</mapper>

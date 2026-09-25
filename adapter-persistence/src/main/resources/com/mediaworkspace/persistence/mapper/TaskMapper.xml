@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  All lease and deadline decisions use UTC_TIMESTAMP(6), the database clock. Java passes only
+  durations, never an instant it computed locally, so a worker with a skewed clock cannot steal a
+  live lease or expire somebody else's session.
+-->
+<mapper namespace="com.mediaworkspace.persistence.mapper.TaskMapper">
+
+    <sql id="taskColumns">
+        t.id              AS id,
+        t.media_id        AS mediaId,
+        t.generation      AS generation,
+        t.state           AS state,
+        t.preset          AS preset,
+        t.attempt         AS attempt,
+        t.execution_epoch AS executionEpoch,
+        t.worker_id       AS workerId,
+        t.lease_until     AS leaseUntil,
+        t.next_run_at     AS nextRunAt,
+        t.progress        AS progress,
+        t.version         AS version,
+        t.error_code      AS errorCode,
+        t.trace_id        AS traceId,
+        t.created_at      AS createdAt,
+        t.updated_at      AS updatedAt
+    </sql>
+
+    <sql id="attemptColumns">
+        a.id              AS id,
+        a.task_id         AS taskId,
+        a.generation      AS generation,
+        a.attempt         AS attempt,
+        a.execution_epoch AS executionEpoch,
+        a.worker_id       AS workerId,
+        a.state           AS state,
+        a.started_at      AS startedAt,
+        a.finished_at     AS finishedAt,
+        a.exit_code       AS exitCode,
+        a.error_code      AS errorCode,
+        a.error_summary   AS errorSummary
+    </sql>
+
+    <!-- The task is created in the same transaction that publishes the media, so there is exactly
+         one creator and no race with a Kafka-driven creation path. -->
+    <insert id="insert">
+        INSERT INTO processing_task (id, media_id, generation, state, preset, attempt, execution_epoch,
+                                     next_run_at, progress, version, trace_id, created_at, updated_at)
+        VALUES (#{id}, #{mediaId}, 1, 'WAITING_EVENT', #{preset}, 0, 0,
+                UTC_TIMESTAMP(6), 0, 1, #{traceId}, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findById" resultType="com.mediaworkspace.application.model.ProcessingTaskRecord">
+        SELECT <include refid="taskColumns"/> FROM processing_task t WHERE t.id = #{taskId}
+    </select>
+
+    <select id="findByMediaId" resultType="com.mediaworkspace.application.model.ProcessingTaskRecord">
+        SELECT <include refid="taskColumns"/> FROM processing_task t WHERE t.media_id = #{mediaId}
+    </select>
+
+    <select id="lockById" resultType="com.mediaworkspace.application.model.ProcessingTaskRecord">
+        SELECT <include refid="taskColumns"/> FROM processing_task t
+        WHERE t.id = #{taskId} FOR UPDATE
+    </select>
+
+    <!-- Selects the next due task and locks it. SKIP LOCKED keeps concurrent workers from queueing
+         behind each other on the same row. The lock is held until the transaction commits, so the
+         claim statement below cannot lose the row to another worker in between. -->
+    <select id="findNextDue" resultType="com.mediaworkspace.application.model.ProcessingTaskRecord">
+        SELECT <include refid="taskColumns"/> FROM processing_task t
+        WHERE t.state IN ('QUEUED', 'RETRY_WAIT')
+          AND t.next_run_at &lt;= UTC_TIMESTAMP(6)
+          AND t.attempt &lt; 3
+        ORDER BY t.next_run_at ASC, t.id ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+    </select>
+
+    <!-- Advances the attempt counter and the execution epoch, so this execution is distinguishable
+         from every previous one and from every later one. -->
+    <update id="claimLocked">
+        UPDATE processing_task
+        SET state = 'RUNNING',
+            attempt = attempt + 1,
+            execution_epoch = execution_epoch + 1,
+            worker_id = #{workerId},
+            lease_until = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{leaseSeconds} SECOND),
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId}
+          AND state IN ('QUEUED', 'RETRY_WAIT')
+          AND attempt &lt; 3
+    </update>
+
+    <insert id="insertAttempt">
+        INSERT INTO task_attempt (id, task_id, generation, attempt, execution_epoch, worker_id, state,
+                                  started_at)
+        VALUES (#{attemptId}, #{taskId}, #{generation}, #{attempt}, #{executionEpoch}, #{workerId},
+                'RUNNING', UTC_TIMESTAMP(6))
+    </insert>
+
+    <update id="renew">
+        UPDATE processing_task
+        SET lease_until = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{leaseSeconds} SECOND),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId}
+          AND generation = #{generation}
+          AND execution_epoch = #{executionEpoch}
+          AND worker_id = #{workerId}
+          AND state = 'RUNNING'
+          AND lease_until &gt; UTC_TIMESTAMP(6)
+    </update>
+
+    <!-- The publish gate. Every part of the execution identity is in the WHERE clause, so a cancel,
+         a retry, a re-lease by another worker or a deleted media all make this affect zero rows. -->
+    <update id="completeTask">
+        UPDATE processing_task
+        SET state = 'SUCCEEDED',
+            progress = 100,
+            error_code = NULL,
+            worker_id = NULL,
+            lease_until = NULL,
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId}
+          AND generation = #{generation}
+          AND execution_epoch = #{executionEpoch}
+          AND worker_id = #{workerId}
+          AND state = 'RUNNING'
+          AND lease_until &gt; UTC_TIMESTAMP(6)
+    </update>
+
+    <update id="updateMediaReady">
+        UPDATE media
+        SET status = 'READY',
+            output_key = #{outputKey},
+            poster_key = #{posterKey},
+            duration_ms = #{durationMs},
+            width = #{width},
+            height = #{height},
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{mediaId} AND deleted_at IS NULL
+    </update>
+
+    <update id="updateMediaState">
+        UPDATE media
+        SET status = #{status},
+            <if test="clearArtifacts">
+            output_key = NULL,
+            poster_key = NULL,
+            </if>
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{mediaId} AND deleted_at IS NULL
+    </update>
+
+    <!-- A retryable failure moves to RETRY_WAIT with a database-computed deadline; a terminal one
+         goes to FAILED with the error code that the task detail page shows. -->
+    <update id="failTask">
+        UPDATE processing_task
+        SET state = #{state},
+            error_code = #{errorCode},
+            worker_id = NULL,
+            lease_until = NULL,
+            next_run_at = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{retryDelayMillis} MICROSECOND),
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId}
+          AND generation = #{generation}
+          AND execution_epoch = #{executionEpoch}
+          AND worker_id = #{workerId}
+          AND state = 'RUNNING'
+          AND lease_until &gt; UTC_TIMESTAMP(6)
+    </update>
+
+    <!-- Progress never reaches 100: that value is written only by the publish transaction, so a
+         hint can never make an unfinished task look complete. -->
+    <update id="updateProgress">
+        UPDATE processing_task
+        SET progress = LEAST(99, GREATEST(0, #{percent})),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId}
+          AND generation = #{generation}
+          AND execution_epoch = #{executionEpoch}
+          AND worker_id = #{workerId}
+          AND state = 'RUNNING'
+          AND lease_until &gt; UTC_TIMESTAMP(6)
+    </update>
+
+    <update id="markQueued">
+        UPDATE processing_task
+        SET state = 'QUEUED',
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId} AND generation = #{generation} AND state = 'WAITING_EVENT'
+    </update>
+
+    <!-- Cancelling bumps the epoch so the in-flight execution can no longer publish, even though
+         its process may still be running. -->
+    <update id="cancelTask">
+        UPDATE processing_task
+        SET state = 'CANCELLED',
+            error_code = #{errorCode},
+            execution_epoch = execution_epoch + 1,
+            worker_id = NULL,
+            lease_until = NULL,
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId} AND state IN ('WAITING_EVENT', 'QUEUED', 'RUNNING', 'RETRY_WAIT')
+    </update>
+
+    <update id="retryTask">
+        UPDATE processing_task
+        SET generation = generation + 1,
+            state = 'WAITING_EVENT',
+            attempt = 0,
+            progress = 0,
+            error_code = NULL,
+            execution_epoch = execution_epoch + 1,
+            worker_id = NULL,
+            lease_until = NULL,
+            next_run_at = UTC_TIMESTAMP(6),
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId} AND state IN ('FAILED', 'CANCELLED')
+    </update>
+
+    <select id="currentGeneration" resultType="java.lang.Integer">
+        SELECT generation FROM processing_task WHERE id = #{taskId}
+    </select>
+
+    <update id="finishAttempt">
+        UPDATE task_attempt
+        SET state = #{state},
+            error_code = #{errorCode},
+            error_summary = #{errorSummary},
+            exit_code = #{exitCode},
+            finished_at = UTC_TIMESTAMP(6)
+        WHERE id = #{attemptId} AND finished_at IS NULL
+    </update>
+
+    <update id="finishOpenAttempts">
+        UPDATE task_attempt
+        SET state = #{state},
+            error_code = #{errorCode},
+            error_summary = #{errorSummary},
+            finished_at = UTC_TIMESTAMP(6)
+        WHERE task_id = #{taskId} AND generation = #{generation} AND finished_at IS NULL
+    </update>
+
+    <select id="findOpenAttempt" resultType="com.mediaworkspace.application.model.TaskAttemptRecord">
+        SELECT <include refid="attemptColumns"/> FROM task_attempt a
+        WHERE a.task_id = #{taskId} AND a.generation = #{generation} AND a.finished_at IS NULL
+        ORDER BY a.attempt DESC LIMIT 1
+    </select>
+
+    <select id="listAttempts" resultType="com.mediaworkspace.application.model.TaskAttemptRecord">
+        SELECT <include refid="attemptColumns"/> FROM task_attempt a
+        WHERE a.task_id = #{taskId}
+        ORDER BY a.generation DESC, a.attempt DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAttempts" resultType="long">
+        SELECT COUNT(*) FROM task_attempt WHERE task_id = #{taskId}
+    </select>
+
+    <select id="findExpiredRunning" resultType="com.mediaworkspace.application.model.ProcessingTaskRecord">
+        SELECT <include refid="taskColumns"/> FROM processing_task t
+        WHERE t.state = 'RUNNING' AND t.lease_until &lt; UTC_TIMESTAMP(6)
+        ORDER BY t.lease_until ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findActiveForDeletedMedia" resultType="com.mediaworkspace.application.model.ProcessingTaskRecord">
+        SELECT <include refid="taskColumns"/> FROM processing_task t
+        JOIN media m ON m.id = t.media_id
+        WHERE m.deleted_at IS NOT NULL
+          AND t.state IN ('WAITING_EVENT', 'QUEUED', 'RUNNING', 'RETRY_WAIT')
+        LIMIT #{limit}
+    </select>
+
+    <select id="countUnfinished" resultType="int">
+        SELECT COUNT(*) FROM processing_task
+        WHERE state IN ('WAITING_EVENT', 'QUEUED', 'RUNNING', 'RETRY_WAIT')
+    </select>
+
+</mapper>

@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mediaworkspace.persistence.mapper.UploadMapper">
+
+    <sql id="sessionColumns">
+        s.id               AS id,
+        s.workspace_id     AS workspaceId,
+        s.owner_id         AS ownerId,
+        s.filename         AS filename,
+        s.title            AS title,
+        s.expected_size    AS expectedSize,
+        s.expected_hash    AS expectedHash,
+        s.chunk_size       AS chunkSize,
+        s.chunk_count      AS chunkCount,
+        s.state            AS state,
+        s.media_id         AS mediaId,
+        s.expires_at       AS expiresAt,
+        s.finalize_epoch   AS finalizeEpoch,
+        s.lease_until      AS leaseUntil,
+        s.next_finalize_at AS nextFinalizeAt,
+        s.quota_reserved   AS quotaReserved,
+        s.error_code       AS errorCode,
+        s.trace_id         AS traceId,
+        s.created_at       AS createdAt
+    </sql>
+
+    <!-- The alias must match UploadChunkRecord's component name exactly, and `index` is a reserved
+         word in MySQL, so it is quoted. -->
+    <sql id="chunkColumns">
+        c.chunk_index AS `index`,
+        c.hash        AS hash,
+        c.size_bytes  AS sizeBytes,
+        c.storage_key AS storageKey
+    </sql>
+
+    <insert id="insertSession">
+        INSERT INTO upload_session (id, workspace_id, owner_id, filename, title, expected_size,
+                                    expected_hash, chunk_size, chunk_count, state, media_id, expires_at,
+                                    finalize_epoch, lease_until, next_finalize_at, quota_reserved,
+                                    error_code, trace_id, created_at, updated_at)
+        VALUES (#{s.id}, #{s.workspaceId}, #{s.ownerId}, #{s.filename}, #{s.title}, #{s.expectedSize},
+                #{s.expectedHash}, #{s.chunkSize}, #{s.chunkCount}, #{s.state}, #{s.mediaId}, #{s.expiresAt},
+                0, NULL, UTC_TIMESTAMP(6), #{s.quotaReserved}, #{s.errorCode}, #{s.traceId},
+                UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findById" resultType="com.mediaworkspace.application.model.UploadSession">
+        SELECT <include refid="sessionColumns"/>
+        FROM upload_session s WHERE s.id = #{uploadId}
+    </select>
+
+    <select id="lockById" resultType="com.mediaworkspace.application.model.UploadSession">
+        SELECT <include refid="sessionColumns"/>
+        FROM upload_session s WHERE s.id = #{uploadId} FOR UPDATE
+    </select>
+
+    <select id="countOpenSessions" resultType="int">
+        SELECT COUNT(*) FROM upload_session
+        WHERE workspace_id = #{workspaceId} AND owner_id = #{ownerId}
+          AND state IN ('OPEN', 'FINALIZING')
+    </select>
+
+    <!-- A chunk row is never overwritten: an occupied index keeps its stored hash and bytes, so a
+         second upload of the same index either matches (and is reported as already stored) or is
+         rejected as a conflict. -->
+    <insert id="insertChunk">
+        INSERT IGNORE INTO upload_chunk (upload_id, chunk_index, hash, size_bytes, storage_key, created_at)
+        VALUES (#{uploadId}, #{c.index}, #{c.hash}, #{c.sizeBytes}, #{c.storageKey}, UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findChunk" resultType="com.mediaworkspace.application.model.UploadChunkRecord">
+        SELECT <include refid="chunkColumns"/>
+        FROM upload_chunk c WHERE c.upload_id = #{uploadId} AND c.chunk_index = #{chunkIndex}
+    </select>
+
+    <select id="listChunks" resultType="com.mediaworkspace.application.model.UploadChunkRecord">
+        SELECT <include refid="chunkColumns"/>
+        FROM upload_chunk c WHERE c.upload_id = #{uploadId}
+        ORDER BY c.chunk_index ASC
+    </select>
+
+    <select id="countChunks" resultType="int">
+        SELECT COUNT(*) FROM upload_chunk WHERE upload_id = #{uploadId}
+    </select>
+
+    <update id="markFinalizing">
+        UPDATE upload_session
+        SET state = 'FINALIZING', error_code = NULL, next_finalize_at = UTC_TIMESTAMP(6),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{uploadId} AND state = 'OPEN'
+    </update>
+
+    <!-- The lease is granted only when no live lease exists, and only while the session is still
+         FINALIZING. The epoch advances in the same statement, so a previous finalizer's epoch is
+         invalidated the instant a new one takes over. -->
+    <update id="acquireFinalizeLease">
+        UPDATE upload_session
+        SET finalize_epoch = finalize_epoch + 1,
+            lease_until = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{leaseSeconds} SECOND),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{uploadId}
+          AND state = 'FINALIZING'
+          AND next_finalize_at &lt;= UTC_TIMESTAMP(6)
+          AND (lease_until IS NULL OR lease_until &lt; UTC_TIMESTAMP(6))
+    </update>
+
+    <select id="currentFinalizeEpoch" resultType="java.lang.Long">
+        SELECT finalize_epoch FROM upload_session WHERE id = #{uploadId}
+    </select>
+
+    <update id="renewFinalizeLease">
+        UPDATE upload_session
+        SET lease_until = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{leaseSeconds} SECOND),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{uploadId} AND finalize_epoch = #{epoch}
+          AND state = 'FINALIZING' AND lease_until &gt; UTC_TIMESTAMP(6)
+    </update>
+
+    <!-- Released without leaving FINALIZING: the merged file and the reservation are kept, only the
+         right to try again is deferred. -->
+    <update id="releaseFinalizeLease">
+        UPDATE upload_session
+        SET lease_until = NULL,
+            next_finalize_at = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{nextAttemptMillis} MICROSECOND),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{uploadId} AND finalize_epoch = #{epoch} AND state = 'FINALIZING'
+    </update>
+
+    <update id="markCompleted">
+        UPDATE upload_session
+        SET state = 'COMPLETED', media_id = #{mediaId}, quota_reserved = 0, lease_until = NULL,
+            error_code = NULL, updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{uploadId} AND state = 'FINALIZING' AND finalize_epoch = #{epoch}
+          AND media_id IS NULL
+    </update>
+
+    <!-- The quota_reserved flag is cleared in the same statement that releases, which is what makes
+         the release happen exactly once even if the same failure is recorded twice. -->
+    <update id="markFailed">
+        UPDATE upload_session
+        SET state = 'FAILED', error_code = #{errorCode}, lease_until = NULL,
+            <if test="releaseReservation">quota_reserved = 0,</if>
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{uploadId} AND state = 'FINALIZING'
+    </update>
+
+    <update id="markTerminated">
+        UPDATE upload_session
+        SET state = #{target}, lease_until = NULL,
+            <if test="releaseReservation">quota_reserved = 0,</if>
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{uploadId} AND state IN ('OPEN', 'FAILED')
+    </update>
+
+    <select id="findExpiredOpen" resultType="com.mediaworkspace.application.model.UploadSession">
+        SELECT <include refid="sessionColumns"/>
+        FROM upload_session s
+        WHERE s.state = 'OPEN' AND s.expires_at &lt; UTC_TIMESTAMP(6)
+        ORDER BY s.expires_at ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findFinalizeCandidates" resultType="com.mediaworkspace.application.model.UploadSession">
+        SELECT <include refid="sessionColumns"/>
+        FROM upload_session s
+        WHERE s.state = 'FINALIZING'
+          AND s.next_finalize_at &lt;= UTC_TIMESTAMP(6)
+          AND (s.lease_until IS NULL OR s.lease_until &lt; UTC_TIMESTAMP(6))
+        ORDER BY s.next_finalize_at ASC, s.id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findStaleFinalizing" resultType="com.mediaworkspace.application.model.UploadSession">
+        SELECT <include refid="sessionColumns"/>
+        FROM upload_session s
+        WHERE s.state = 'FINALIZING'
+          AND s.lease_until IS NOT NULL
+          AND s.lease_until &lt; UTC_TIMESTAMP(6)
+        ORDER BY s.lease_until ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findTerminalBefore" resultType="com.mediaworkspace.application.model.UploadSession">
+        SELECT <include refid="sessionColumns"/>
+        FROM upload_session s
+        WHERE s.state IN ('COMPLETED', 'FAILED', 'EXPIRED', 'ABORTED')
+          AND s.updated_at &lt; DATE_SUB(UTC_TIMESTAMP(6), INTERVAL #{lookbackSeconds} SECOND)
+        LIMIT #{limit}
+    </select>
+
+</mapper>

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mediaworkspace.persistence.mapper.WorkspaceMapper">
+
+    <sql id="workspaceColumns">
+        w.id                    AS id,
+        w.name                  AS name,
+        w.owner_id              AS ownerId,
+        w.source_quota_bytes    AS quotaBytes,
+        w.used_source_bytes     AS usedSourceBytes,
+        w.reserved_source_bytes AS reservedSourceBytes
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO workspace (id, name, owner_id, source_quota_bytes,
+                               used_source_bytes, reserved_source_bytes, created_at, updated_at)
+        VALUES (#{id}, #{name}, #{ownerId}, #{quotaBytes}, 0, 0, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+    </insert>
+
+    <!-- The owner is always a member; the left join supplies the caller's own role. -->
+    <select id="findById" resultType="com.mediaworkspace.application.model.Workspace">
+        SELECT <include refid="workspaceColumns"/>,
+               (SELECT m.role FROM workspace_member m
+                 WHERE m.workspace_id = w.id AND m.user_id = #{userId}) AS role
+        FROM workspace w
+        WHERE w.id = #{workspaceId}
+    </select>
+
+    <select id="listForUser" resultType="com.mediaworkspace.application.model.Workspace">
+        SELECT <include refid="workspaceColumns"/>, m.role AS role
+        FROM workspace w
+        JOIN workspace_member m ON m.workspace_id = w.id
+        WHERE m.user_id = #{userId}
+        ORDER BY w.created_at ASC, w.id ASC
+    </select>
+
+    <select id="lockForReservation" resultType="com.mediaworkspace.application.model.Workspace">
+        SELECT <include refid="workspaceColumns"/>, NULL AS role
+        FROM workspace w
+        WHERE w.id = #{workspaceId}
+        FOR UPDATE
+    </select>
+
+    <!-- The CHECK constraint on the row is the final guard; these conditions keep the counters
+         from ever being driven negative by a repeated release. -->
+    <update id="addReservedBytes">
+        UPDATE workspace
+        SET reserved_source_bytes = reserved_source_bytes + #{delta},
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{workspaceId}
+    </update>
+
+    <update id="releaseReservedBytes">
+        UPDATE workspace
+        SET reserved_source_bytes = GREATEST(0, reserved_source_bytes - #{delta}),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{workspaceId}
+    </update>
+
+    <update id="moveReservedToUsed">
+        UPDATE workspace
+        SET reserved_source_bytes = GREATEST(0, reserved_source_bytes - #{bytes}),
+            used_source_bytes = used_source_bytes + #{bytes},
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{workspaceId}
+    </update>
+
+    <update id="releaseUsedBytes">
+        UPDATE workspace
+        SET used_source_bytes = GREATEST(0, used_source_bytes - #{delta}),
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{workspaceId}
+    </update>
+
+    <select id="roleOf" resultType="java.lang.String">
+        SELECT role FROM workspace_member
+        WHERE workspace_id = #{workspaceId} AND user_id = #{userId}
+    </select>
+
+    <!-- The OWNER membership is never touched. The statement itself refuses the demotion rather
+         than trusting callers to check first: when the existing row is OWNER its role is kept, so
+         a space cannot lose its owner even if a caller makes a mistake. The delete below applies
+         the same rule. -->
+    <insert id="upsertMember">
+        INSERT INTO workspace_member (workspace_id, user_id, role, created_at, updated_at)
+        VALUES (#{workspaceId}, #{userId}, #{role}, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+        ON DUPLICATE KEY UPDATE
+            role = IF(role = 'OWNER', role, VALUES(role)),
+            updated_at = UTC_TIMESTAMP(6)
+    </insert>
+
+    <delete id="removeMember">
+        DELETE FROM workspace_member
+        WHERE workspace_id = #{workspaceId} AND user_id = #{userId} AND role &lt;&gt; 'OWNER'
+    </delete>
+
+    <select id="listMembers" resultType="com.mediaworkspace.application.model.Membership">
+        SELECT m.user_id AS userId, u.username AS username, m.role AS role
+        FROM workspace_member m
+        JOIN app_user u ON u.id = m.user_id
+        WHERE m.workspace_id = #{workspaceId}
+        ORDER BY FIELD(m.role, 'OWNER', 'EDITOR', 'VIEWER'), u.username ASC
+    </select>
+
+</mapper>

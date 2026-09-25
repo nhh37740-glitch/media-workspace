@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mediaworkspace.persistence.mapper.MediaMapper">
+
+    <sql id="mediaColumns">
+        m.id                AS id,
+        m.workspace_id      AS workspaceId,
+        m.uploader_id       AS uploaderId,
+        m.title             AS title,
+        m.original_filename AS originalFilename,
+        m.source_key        AS sourceKey,
+        m.source_size       AS sourceSize,
+        m.source_hash       AS sourceHash,
+        m.status            AS status,
+        m.version           AS version,
+        m.duration_ms       AS durationMs,
+        m.width             AS width,
+        m.height            AS height,
+        m.output_key        AS outputKey,
+        m.poster_key        AS posterKey,
+        m.deleted_at        AS deletedAt,
+        m.created_at        AS createdAt
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO media (id, workspace_id, uploader_id, title, original_filename, source_key,
+                           source_size, source_hash, status, version, created_at, updated_at)
+        VALUES (#{m.id}, #{m.workspaceId}, #{m.uploaderId}, #{m.title}, #{m.originalFilename},
+                #{m.sourceKey}, #{m.sourceSize}, #{m.sourceHash}, #{m.status}, 0,
+                UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findVisible" resultType="com.mediaworkspace.application.model.MediaRecord">
+        SELECT <include refid="mediaColumns"/>
+        FROM media m WHERE m.id = #{mediaId} AND m.deleted_at IS NULL
+    </select>
+
+    <select id="lockVisible" resultType="com.mediaworkspace.application.model.MediaRecord">
+        SELECT <include refid="mediaColumns"/>
+        FROM media m WHERE m.id = #{mediaId} AND m.deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <!-- LIKE metacharacters are neutralized before the pattern is built, so a user typing '%' or '_'
+         searches for that character instead of widening the match to every row. -->
+    <sql id="titleFilter">
+        <if test="escaped != null">
+            AND m.title LIKE CONCAT('%', #{escaped}, '%') ESCAPE '!'
+        </if>
+    </sql>
+
+    <select id="search" resultType="com.mediaworkspace.application.model.MediaRecord">
+        SELECT <include refid="mediaColumns"/>
+        FROM media m
+        WHERE m.workspace_id = #{workspaceId} AND m.deleted_at IS NULL
+        <include refid="titleFilter"/>
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM media m
+        WHERE m.workspace_id = #{workspaceId} AND m.deleted_at IS NULL
+        <include refid="titleFilter"/>
+    </select>
+
+    <update id="rename">
+        UPDATE media
+        SET title = #{title}, version = version + 1, updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{mediaId} AND version = #{expectedVersion} AND deleted_at IS NULL
+    </update>
+
+    <update id="markDeleted">
+        UPDATE media
+        SET deleted_at = UTC_TIMESTAMP(6), version = version + 1, updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{mediaId} AND deleted_at IS NULL
+    </update>
+
+    <select id="findAnyIncludingDeleted" resultType="com.mediaworkspace.application.model.MediaRecord">
+        SELECT <include refid="mediaColumns"/>
+        FROM media m WHERE m.id = #{mediaId}
+    </select>
+
+    <!-- The garbage collector asks this before removing a file: a key still referenced by any row
+         must survive, deleted rows included, because a rollback of the deletion would need it. -->
+    <select id="countStorageKeyReferences" resultType="int">
+        SELECT COUNT(*) FROM media
+        WHERE source_key = #{storageKey} OR output_key = #{storageKey} OR poster_key = #{storageKey}
+    </select>
+
+    <select id="findDeletedBefore" resultType="com.mediaworkspace.application.model.MediaRecord">
+        SELECT <include refid="mediaColumns"/>
+        FROM media m
+        WHERE m.deleted_at IS NOT NULL
+          AND m.deleted_at &lt; DATE_SUB(UTC_TIMESTAMP(6), INTERVAL #{lookbackSeconds} SECOND)
+        LIMIT #{limit}
+    </select>
+
+</mapper>

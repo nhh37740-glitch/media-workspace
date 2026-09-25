@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mediaworkspace.persistence.mapper.MessagingMapper">
+
+    <sql id="outboxColumns">
+        o.event_id       AS eventId,
+        o.topic          AS topic,
+        o.event_key      AS eventKey,
+        o.body           AS body,
+        o.state          AS state,
+        o.publish_attempt AS publishAttempt,
+        o.next_run_at    AS nextRunAt,
+        o.claim_token    AS claimToken,
+        o.claim_until    AS claimUntil,
+        o.published_at   AS publishedAt
+    </sql>
+
+    <!-- Appended inside the caller's business transaction, so an event exists exactly when the
+         state change that produced it exists. This statement never contacts Kafka. -->
+    <insert id="appendOutbox">
+        INSERT INTO outbox_event (event_id, topic, event_key, body, state, publish_attempt,
+                                  next_run_at, created_at)
+        VALUES (#{o.eventId}, #{o.topic}, #{o.eventKey}, CAST(#{o.body} AS JSON), 'PENDING', 0,
+                UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findClaimable" resultType="com.mediaworkspace.application.model.OutboxRecord">
+        SELECT <include refid="outboxColumns"/>
+        FROM outbox_event o
+        WHERE o.state = 'PENDING' AND o.next_run_at &lt;= UTC_TIMESTAMP(6)
+        ORDER BY o.next_run_at ASC, o.event_id ASC
+        LIMIT #{limit}
+    </select>
+
+    <!-- The claim is a conditional update, so two publishers racing on the same batch cannot both
+         win a row: the second sees zero affected rows and moves on. -->
+    <update id="claimOutbox">
+        UPDATE outbox_event
+        SET state = 'CLAIMED',
+            claim_token = #{claimToken},
+            claim_until = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{claimSeconds} SECOND),
+            publish_attempt = publish_attempt + 1
+        WHERE state = 'PENDING'
+          AND next_run_at &lt;= UTC_TIMESTAMP(6)
+          AND event_id IN
+          <foreach collection="eventIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
+    <!-- Only the claim that still owns the row may acknowledge it. A row re-claimed by another
+         publisher after this one's lease lapsed is deliberately left for that publisher, which is
+         what turns a crash between the broker acknowledgement and this update into a duplicate
+         event rather than a lost one. -->
+    <update id="markPublished">
+        UPDATE outbox_event
+        SET state = 'PUBLISHED', published_at = UTC_TIMESTAMP(6), claim_token = NULL, claim_until = NULL
+        WHERE event_id = #{eventId} AND claim_token = #{claimToken} AND state = 'CLAIMED'
+    </update>
+
+    <update id="reschedule">
+        UPDATE outbox_event
+        SET state = 'PENDING',
+            next_run_at = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{delayMillis} MICROSECOND),
+            claim_token = NULL,
+            claim_until = NULL
+        WHERE event_id = #{eventId} AND claim_token = #{claimToken} AND state = 'CLAIMED'
+    </update>
+
+    <update id="releaseExpiredClaims">
+        UPDATE outbox_event
+        SET state = 'PENDING', claim_token = NULL, claim_until = NULL
+        WHERE state = 'CLAIMED' AND claim_until &lt; UTC_TIMESTAMP(6)
+    </update>
+
+    <select id="findOutbox" resultType="com.mediaworkspace.application.model.OutboxRecord">
+        SELECT <include refid="outboxColumns"/>
+        FROM outbox_event o WHERE o.event_id = #{eventId}
+    </select>
+
+    <select id="countPending" resultType="int">
+        SELECT COUNT(*) FROM outbox_event WHERE state &lt;&gt; 'PUBLISHED'
+    </select>
+
+    <insert id="insertInbox">
+        INSERT IGNORE INTO inbox_event (consumer_group, event_id, body_hash, processed_at)
+        VALUES (#{consumerGroup}, #{eventId}, #{bodyHash}, UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="findInboxBodyHash" resultType="java.lang.String">
+        SELECT body_hash FROM inbox_event
+        WHERE consumer_group = #{consumerGroup} AND event_id = #{eventId}
+    </select>
+
+    <!-- Only the coordinates and a hash are kept: the original body is deliberately not stored, so
+         a poison record cannot become an unbounded copy of the topic. -->
+    <insert id="insertPoison">
+        INSERT IGNORE INTO poison_message (topic, partition_id, offset_id, error_code, body_hash, created_at)
+        VALUES (#{topic}, #{partitionId}, #{offsetId}, #{errorCode}, #{bodyHash}, UTC_TIMESTAMP(6))
+    </insert>
+
+    <select id="countPoison" resultType="int">
+        SELECT COUNT(*) FROM poison_message
+        WHERE topic = #{topic} AND partition_id = #{partitionId} AND offset_id = #{offsetId}
+    </select>
+
+</mapper>

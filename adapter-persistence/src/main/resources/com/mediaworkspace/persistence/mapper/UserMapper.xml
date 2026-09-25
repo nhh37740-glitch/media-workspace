@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  Columns are aliased to the exact names of UserAccount's record components. The alias is explicit
+  rather than relying on a naming strategy, so a rename in the record fails loudly at query time
+  instead of silently mapping null.
+-->
+<mapper namespace="com.mediaworkspace.persistence.mapper.UserMapper">
+
+    <sql id="userColumns">
+        id            AS id,
+        username      AS username,
+        password_hash AS passwordHash,
+        enabled       AS enabled
+    </sql>
+
+    <select id="findByUsername" resultType="com.mediaworkspace.application.model.UserAccount">
+        SELECT <include refid="userColumns"/>
+        FROM app_user
+        WHERE username = #{username}
+    </select>
+
+    <select id="findById" resultType="com.mediaworkspace.application.model.UserAccount">
+        SELECT <include refid="userColumns"/>
+        FROM app_user
+        WHERE id = #{id}
+    </select>
+
+    <select id="countById" resultType="int">
+        SELECT COUNT(*) FROM app_user WHERE id = #{id}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO app_user (id, username, password_hash, enabled, created_at, updated_at)
+        VALUES (#{id}, #{username}, #{passwordHash}, #{enabled}, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+    </insert>
+
+</mapper>

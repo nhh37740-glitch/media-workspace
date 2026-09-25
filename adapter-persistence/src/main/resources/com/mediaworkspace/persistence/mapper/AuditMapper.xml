@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mediaworkspace.persistence.mapper.AuditMapper">
+
+    <!-- The unique key on source_event_id makes a repeated projection of the same event a no-op. -->
+    <insert id="appendFromEvent">
+        INSERT IGNORE INTO audit_event (workspace_id, actor_id, action, resource_id, request_id,
+                                        detail, source_event_id, created_at)
+        VALUES (#{workspaceId}, #{actorId}, #{action}, #{resourceId}, #{requestId},
+                <choose>
+                    <when test="detailJson != null">CAST(#{detailJson} AS JSON)</when>
+                    <otherwise>NULL</otherwise>
+                </choose>,
+                #{sourceEventId}, UTC_TIMESTAMP(6))
+    </insert>
+
+</mapper>

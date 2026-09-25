@@ -1,5 +1,7 @@
 // MyBatis mappers, Flyway migrations, lock/conditional-update SQL.
 // Owns all SQL. Must not return HTTP statuses, start processes or publish Kafka records.
+apply plugin: 'java-test-fixtures'
+
 dependencies {
     api project(':media-application')
     implementation libs.mybatis.spring.boot.starter
@@ -7,4 +9,13 @@ dependencies {
     implementation libs.flyway.mysql
     runtimeOnly libs.mysql.connector.j
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+
+    // Fixtures expose the real-MySQL harness to every module's integrationTest source set, so no
+    // module has to reimplement schema creation or connection handling.
+    testFixturesApi libs.spring.boot.starter.test
+    testFixturesApi 'org.springframework.boot:spring-boot-starter-jdbc'
+    testFixturesApi libs.mybatis.spring.boot.starter
+    testFixturesApi libs.flyway.core
+    testFixturesApi libs.flyway.mysql
+    testFixturesRuntimeOnly libs.mysql.connector.j
 }

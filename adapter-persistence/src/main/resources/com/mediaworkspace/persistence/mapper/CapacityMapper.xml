@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.mediaworkspace.persistence.mapper.CapacityMapper">
+
+    <sql id="capacityColumns">
+        c.name         AS name,
+        c.active_count AS activeCount,
+        c.max_count    AS maxCount
+    </sql>
+
+    <select id="lock" resultType="com.mediaworkspace.application.model.CapacitySnapshot">
+        SELECT <include refid="capacityColumns"/>
+        FROM capacity_counter c WHERE c.name = #{name} FOR UPDATE
+    </select>
+
+    <select id="read" resultType="com.mediaworkspace.application.model.CapacitySnapshot">
+        SELECT <include refid="capacityColumns"/>
+        FROM capacity_counter c WHERE c.name = #{name}
+    </select>
+
+    <update id="increment">
+        UPDATE capacity_counter
+        SET active_count = active_count + 1, updated_at = UTC_TIMESTAMP(6)
+        WHERE name = #{name} AND active_count &lt; max_count
+    </update>
+
+    <!-- GREATEST keeps the counter from being driven negative by a repeated release; the CHECK
+         constraint would otherwise turn a double release into an error at the wrong layer. -->
+    <update id="decrement">
+        UPDATE capacity_counter
+        SET active_count = GREATEST(0, active_count - 1), updated_at = UTC_TIMESTAMP(6)
+        WHERE name = #{name}
+    </update>
+
+    <select id="maxCount" resultType="java.lang.Integer">
+        SELECT max_count FROM capacity_counter WHERE name = #{name}
+    </select>
+
+</mapper>
