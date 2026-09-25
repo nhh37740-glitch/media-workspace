@@ -1,0 +1,40 @@
+# Secrets and local environment: never committed.
+.env
+*.pem
+*.key
+secrets/
+local.properties
+
+# Build output
+build/
+out/
+bin/
+.gradle/
+dist/
+node_modules/
+*.class
+*.log
+
+# Real media and runtime data: generated at run time, never committed.
+var/
+storage/
+runtime/
+*.mp4
+*.mov
+*.mkv
+*.jpg
+!docs/media/.gitkeep
+
+# Test/coverage/report output
+test-results/
+reports/
+evidence/
+coverage/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project

@@ -1,0 +1,79 @@
+// Root build for media-workspace.
+//
+// The plugin versions here are the same values recorded in gradle/libs.versions.toml.
+// They cannot be read from the catalog inside a `plugins {}` block, so they are literals;
+// VersionMatrixTest asserts the two sources agree.
+plugins {
+    id 'org.springframework.boot' version '3.5.16' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+}
+
+allprojects {
+    group = 'com.mediaworkspace'
+    version = rootProject.findProperty('version') ?: '0.1.0'
+}
+
+subprojects {
+    apply plugin: 'java-library'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    dependencyManagement {
+        imports {
+            mavenBom "org.springframework.boot:spring-boot-dependencies:${libs.versions.springBoot.get()}"
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.compilerArgs << '-Xlint:all' << '-Xlint:-processing' << '-Xlint:-serial'
+    }
+
+    // Unit tests: never start MySQL, Kafka or FFmpeg.
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        // Bounded heap: several test JVMs plus MySQL/Kafka share a 2 GiB host.
+        maxHeapSize = '384m'
+        systemProperty 'file.encoding', 'UTF-8'
+        testLogging {
+            events 'passed', 'skipped', 'failed'
+            exceptionFormat = 'full'
+        }
+    }
+
+    // Integration tests: real MySQL + Kafka + FFmpeg, isolated schema and topic prefix.
+    // Deliberately excluded from `check`; the Jenkins Integration stage runs it explicitly.
+    sourceSets {
+        integrationTest {
+            java.srcDir 'src/integrationTest/java'
+            resources.srcDir 'src/integrationTest/resources'
+            compileClasspath += sourceSets.main.output + sourceSets.test.output
+            runtimeClasspath += sourceSets.main.output + sourceSets.test.output
+        }
+    }
+    configurations {
+        integrationTestImplementation.extendsFrom testImplementation
+        integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+    }
+    tasks.register('integrationTest', Test) {
+        description = 'Runs integration tests against real MySQL/Kafka/FFmpeg.'
+        group = 'verification'
+        testClassesDirs = sourceSets.integrationTest.output.classesDirs
+        classpath = sourceSets.integrationTest.runtimeClasspath
+        shouldRunAfter tasks.named('test')
+        maxHeapSize = '384m'
+        // A skipped integration test must not look like a pass.
+        systemProperty 'mediaworkspace.integration.required', 'true'
+        outputs.upToDateWhen { false }
+    }
+
+    dependencies {
+        testImplementation libs.spring.boot.starter.test
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+}

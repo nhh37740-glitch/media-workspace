@@ -1,0 +1,7 @@
+// Wire contracts: DTOs, event records, error codes, trace field names, serialization fixtures.
+// Must not depend on any other project module.
+dependencies {
+    api libs.jackson.databind
+    api libs.jackson.datatype.jsr310
+    api 'jakarta.validation:jakarta.validation-api'
+}

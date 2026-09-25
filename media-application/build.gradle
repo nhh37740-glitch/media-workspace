@@ -1,0 +1,9 @@
+// Use-case orchestration, transaction boundaries, ports for external capabilities.
+// Never imports an adapter: it declares the interfaces the adapters implement.
+dependencies {
+    api project(':media-domain')
+    api project(':media-contracts')
+    api 'org.springframework:spring-context'
+    api 'org.springframework:spring-tx'
+    implementation 'org.slf4j:slf4j-api'
+}

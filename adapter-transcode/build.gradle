@@ -1,0 +1,5 @@
+// ProcessBuilder-based ffprobe/FFmpeg adapter: argv lists, pipe draining, timeouts, exit classification.
+dependencies {
+    api project(':media-application')
+    implementation 'org.springframework.boot:spring-boot-starter'
+}

@@ -1,0 +1,6 @@
+// Envelope serialization, Kafka producers/consumers, outbox delivery, inbox intake, DLQ.
+dependencies {
+    api project(':media-application')
+    implementation libs.spring.kafka
+    implementation 'org.springframework.boot:spring-boot-starter'
+}

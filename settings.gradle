@@ -1,0 +1,17 @@
+rootProject.name = 'media-workspace'
+
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+    }
+}
+
+include 'media-contracts'
+include 'media-domain'
+include 'media-application'
+include 'adapter-persistence'
+include 'adapter-messaging'
+include 'adapter-transcode'
+include 'adapter-storage'
+include 'media-api'
+include 'media-worker'

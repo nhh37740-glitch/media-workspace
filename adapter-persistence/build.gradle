@@ -1,0 +1,10 @@
+// MyBatis mappers, Flyway migrations, lock/conditional-update SQL.
+// Owns all SQL. Must not return HTTP statuses, start processes or publish Kafka records.
+dependencies {
+    api project(':media-application')
+    implementation libs.mybatis.spring.boot.starter
+    implementation libs.flyway.core
+    implementation libs.flyway.mysql
+    runtimeOnly libs.mysql.connector.j
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+}

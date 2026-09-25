@@ -1,0 +1,19 @@
+// Executable worker application: Kafka intake, lease scheduling, transcode execution. No public port.
+apply plugin: 'org.springframework.boot'
+
+dependencies {
+    implementation project(':adapter-persistence')
+    implementation project(':adapter-storage')
+    implementation project(':adapter-messaging')
+    implementation project(':adapter-transcode')
+    implementation project(':media-application')
+    implementation project(':media-domain')
+    implementation project(':media-contracts')
+
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+}
+
+bootJar {
+    archiveFileName = "media-worker-${project.version}.jar"
+}

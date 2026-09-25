@@ -1,0 +1,5 @@
+// Pure business rules: state machines, role rules, retry policy.
+// No Spring, no MyBatis, no Kafka, no IO. Depends only on the wire enums in media-contracts.
+dependencies {
+    api project(':media-contracts')
+}
