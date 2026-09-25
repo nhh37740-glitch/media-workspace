@@ -52,8 +52,18 @@ instance.setSlaveAgentPort(-1) // an inbound agent connects to the HTTP port
 
 instance.save()
 
-// The agent connects with a token issued by the controller; without this the connection is refused.
-def rule = instance.getExtensionList(AdminWhitelistRule.class).get(0)
-rule.setMasterKillSwitch(false)
+// The agent connects with a token issued by the controller, so the agent-to-controller command
+// channel has to be permitted. It is wrapped because the class that owns the switch has moved
+// between Jenkins versions, and a failure here must not abort the script after the account and the
+// authorization strategy have already been written - which is how a controller came to have an
+// account whose password nobody could authenticate with reliably.
+try {
+    def rules = instance.getExtensionList(AdminWhitelistRule.class)
+    if (!rules.isEmpty()) {
+        rules.get(0).setMasterKillSwitch(false)
+    }
+} catch (Throwable failure) {
+    println("[init] could not adjust the agent command whitelist: ${failure.message}")
+}
 
 println('[init] security configured: authenticated access only, 0 executors on the controller')

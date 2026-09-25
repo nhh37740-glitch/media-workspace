@@ -62,7 +62,12 @@ install_controller() {
   # The init scripts are copied into the controller's home. They configure security, the agent and
   # the job, so a rebuilt controller comes up in the same state without anyone clicking through a
   # wizard whose result is not in the repository.
+  #
+  # The directory is emptied first: the copy would otherwise leave a script that has been removed
+  # from the repository behind, and it would keep running on every start. One did, and its failure
+  # appeared in the log long after the file had been deleted from the sources.
   install -d -o ubuntu -g ubuntu "$JENKINS_HOME_DIR/init.groovy.d"
+  rm -f "$JENKINS_HOME_DIR"/init.groovy.d/*.groovy
   install -o ubuntu -g ubuntu -m 0644 "$REPO_ROOT"/deploy/jenkins/init.groovy.d/*.groovy \
     "$JENKINS_HOME_DIR/init.groovy.d/"
   install -o root -g root -m 0644 "$REPO_ROOT/deploy/jenkins/jenkins.service" \
@@ -230,7 +235,7 @@ start_agent() {
     local output
     output="$(java -jar "$cli_jar" -s "$JENKINS_URL" -http \
       -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" \
-      get-node media-workspace-agent 2>/dev/null || true)"
+      list-nodes 2>/dev/null || true)"
     rm -f "$cli_jar"
     if printf '%s' "$output" | grep -q 'online\|media-workspace-agent'; then
       log "the agent is registered"
@@ -240,6 +245,28 @@ start_agent() {
   done
   log "the agent did not report within the wait; check journalctl -u media-jenkins-agent"
 }
+
+# Three starts, each with a reason:
+#   1. the first applies the init scripts, which create the administrator account - and the plugin
+#      installation needs that account to authenticate;
+#   2. the second loads the plugins just installed, because a plugin's own extensions only come up
+#      on a fresh start;
+#   3. nothing else is restarted afterwards, so the job and agent work against the running instance.
+# The administrator account is recreated from the current environment file.
+#
+# The account can be left in a state where its stored password no longer matches the environment:
+# an earlier run of the initialisation script wrote the account and then failed part way through,
+# and the password it used came from a file that has since been rewritten. Removing the account and
+# the realm configuration makes the next start recreate both from the value that is actually in the
+# environment now, which is the only value anyone can read.
+if [ "${RESET_ADMIN_ACCOUNT:-0}" = "1" ]; then
+  log "resetting the administrator account from the environment file"
+  systemctl stop media-jenkins || true
+  rm -rf "$JENKINS_HOME_DIR/users"
+  # config.xml holds the security realm and the authorization strategy; the node and job definitions
+  # live in their own directories and are not affected.
+  rm -f "$JENKINS_HOME_DIR/config.xml"
+fi
 
 # Three starts, each with a reason:
 #   1. the first applies the init scripts, which create the administrator account - and the plugin
