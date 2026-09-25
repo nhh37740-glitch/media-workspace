@@ -68,6 +68,18 @@ public interface TaskMapper {
                  @Param("state") String state, @Param("errorCode") String errorCode,
                  @Param("retryDelayMillis") long retryDelayMillis);
 
+    /**
+     * Moves a task whose execution lease already lapsed.
+     *
+     * <p>Identical to {@link #failTask} except that it does not require {@code lease_until} to be in
+     * the future. Recovery runs because the lease expired, so including that condition made the
+     * statement match nothing and left the task RUNNING forever - the failure it is meant to repair.
+     */
+    int recoverStaleTask(@Param("taskId") String taskId, @Param("generation") int generation,
+                         @Param("executionEpoch") long executionEpoch,
+                         @Param("state") String state, @Param("errorCode") String errorCode,
+                         @Param("retryDelayMillis") long retryDelayMillis);
+
     int updateProgress(@Param("taskId") String taskId, @Param("generation") int generation,
                        @Param("executionEpoch") long executionEpoch, @Param("workerId") String workerId,
                        @Param("percent") int percent);

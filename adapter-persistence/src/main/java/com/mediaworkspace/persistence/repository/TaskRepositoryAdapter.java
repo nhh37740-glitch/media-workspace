@@ -156,6 +156,35 @@ public class TaskRepositoryAdapter implements TaskRepository {
         return true;
     }
 
+    /**
+     * Records the outcome of an execution whose lease already lapsed.
+     *
+     * <p>Same effects as {@link #fail}, on a statement that does not require the lease to still be
+     * live. The attempt is closed as LOST rather than FAILED: a lapsed lease says the worker stopped
+     * talking, not that it produced nothing, and this path cannot see the filesystem.
+     */
+    @Override
+    public boolean recoverLapsed(TaskLease lease, TaskErrorCode errorCode, String errorSummary,
+                                 Duration retryDelay, boolean terminal) {
+        ExecutionIdentity identity = lease.identity();
+        String state = terminal ? TaskState.FAILED.name() : TaskState.RETRY_WAIT.name();
+        if (tasks.recoverStaleTask(identity.taskId(), identity.generation(),
+                identity.executionEpoch(), state, errorCode.name(), retryDelay.toMillis()) == 0) {
+            // A newer execution owns the row, or the task already moved on. Nothing to do.
+            return false;
+        }
+        tasks.finishAttempt(lease.attemptId(), "LOST", errorCode.name(), errorSummary, null);
+        if (!terminal) {
+            return true;
+        }
+        String mediaId = lease.task().mediaId();
+        tasks.updateMediaState(mediaId, MediaState.FAILED.name(), null, null, true);
+        capacity.decrement(CapacityRepository.PROCESSING);
+        appendResultEvent(lease, EventType.TASK_FAILED, identity.generation(),
+                new TaskFailedPayload(lease.attemptId(), errorCode.name(), false));
+        return true;
+    }
+
     @Override
     public boolean updateProgress(ExecutionIdentity identity, int percent) {
         return tasks.updateProgress(identity.taskId(), identity.generation(), identity.executionEpoch(),

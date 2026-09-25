@@ -74,6 +74,24 @@ public interface TaskRepository {
     boolean fail(TaskLease lease, TaskErrorCode errorCode, String errorSummary, Integer exitCode,
                  Duration retryDelay, boolean terminal);
 
+    /**
+     * Records the outcome of an execution whose lease has already lapsed.
+     *
+     * <p>Deliberately a different operation from {@link #fail}. That one requires a live lease in its
+     * {@code WHERE} clause, because an execution may only write while it still owns the row. Recovery
+     * is called precisely <em>because</em> the lease lapsed, so applying the same condition made
+     * every recovery a no-op: the task stayed RUNNING with nobody working on it, which is the state
+     * this method exists to end.
+     *
+     * <p>The execution identity is still required in full - task, generation, epoch and worker - so
+     * this can only affect the execution that actually holds the row, and a task re-claimed in the
+     * meantime is left alone.
+     *
+     * @return whether the update applied
+     */
+    boolean recoverLapsed(TaskLease lease, TaskErrorCode errorCode, String errorSummary,
+                          Duration retryDelay, boolean terminal);
+
     /** Records progress for a running execution; ignored when the execution is no longer current. */
     boolean updateProgress(ExecutionIdentity identity, int percent);
 

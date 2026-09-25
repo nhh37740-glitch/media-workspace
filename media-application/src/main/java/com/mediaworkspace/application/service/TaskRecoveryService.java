@@ -63,22 +63,24 @@ public class TaskRecoveryService {
 
     private boolean recoverOne(ProcessingTaskRecord task) {
         Optional<TaskAttemptRecord> openAttempt = tasks.findOpenAttempt(task.id(), task.generation());
-        openAttempt.ifPresent(attempt -> tasks.finishAttempt(attempt.id(), "LOST",
-                TaskErrorCode.WORKER_LOST,
-                "the worker stopped renewing its lease; it may or may not have written output", null));
 
         // The lease already lapsed, so the identity in the row is stale by definition. It is passed
         // through unchanged rather than replaced, because the conditional update must still match
-        // the exact row this recovery read: if a newer execution has claimed it meanwhile, the
-        // update matches nothing and the recovery correctly does not apply.
+        // the exact execution this recovery read: if a newer execution claimed the row meanwhile,
+        // the update matches nothing and the recovery correctly does not apply.
         TaskLease lease = new TaskLease(task,
                 openAttempt.map(TaskAttemptRecord::id).orElse(syntheticAttemptId(task)),
                 task.workerId() == null ? "" : task.workerId(), task.leaseUntil());
 
         boolean terminal = TaskStateMachine.MAX_ATTEMPTS_PER_GENERATION <= task.attempt();
         Duration delay = terminal ? Duration.ZERO : backoff.delayAfter(task.attempt());
-        if (!tasks.fail(lease, TaskErrorCode.WORKER_LOST,
-                "the executing worker stopped reporting", null, delay, terminal)) {
+
+        // recoverLapsed, not fail. The ordinary failure path requires a live lease because an
+        // execution may only write while it owns the row; recovery runs precisely because the lease
+        // is gone, so that condition made every recovery a no-op and left the task RUNNING with
+        // nobody working on it. This is the defect the JOB-07 case exists to catch.
+        if (!tasks.recoverLapsed(lease, TaskErrorCode.WORKER_LOST,
+                "the executing worker stopped reporting", delay, terminal)) {
             return false;
         }
         log.info("task {} generation {} attempt {} was recovered as {}",

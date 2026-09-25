@@ -175,6 +175,26 @@
           AND lease_until &gt; UTC_TIMESTAMP(6)
     </update>
 
+    <!-- Recovery, for an execution whose lease has already lapsed.
+         The execution identity is still matched in full, so a task re-claimed since the lapse is
+         left untouched; what is dropped is the lease deadline, because that deadline is the thing
+         that failed. Requiring it here made every recovery a no-op and left the task RUNNING with
+         nobody working on it. -->
+    <update id="recoverStaleTask">
+        UPDATE processing_task
+        SET state = #{state},
+            error_code = #{errorCode},
+            worker_id = NULL,
+            lease_until = NULL,
+            next_run_at = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{retryDelayMillis} MICROSECOND),
+            version = version + 1,
+            updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{taskId}
+          AND generation = #{generation}
+          AND execution_epoch = #{executionEpoch}
+          AND state = 'RUNNING'
+    </update>
+
     <!-- Progress never reaches 100: that value is written only by the publish transaction, so a
          hint can never make an unfinished task look complete. -->
     <update id="updateProgress">
