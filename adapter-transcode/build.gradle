@@ -2,4 +2,9 @@
 dependencies {
     api project(':media-application')
     implementation 'org.springframework.boot:spring-boot-starter'
+    implementation libs.jackson.databind
+
+    // The adapter tests run the real binaries. A stub program that can hang, flood stderr or exit
+    // non-zero is compiled here so failure paths can be exercised deterministically.
+    testImplementation libs.spring.boot.starter.test
 }
