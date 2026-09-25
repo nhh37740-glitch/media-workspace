@@ -50,10 +50,11 @@ subprojects {
 
     // Integration tests: real MySQL + Kafka + FFmpeg, isolated schema and topic prefix.
     // Deliberately excluded from `check`; the Jenkins Integration stage runs it explicitly.
+    // src/integrationTest/java and src/integrationTest/resources are the source set's own defaults,
+    // so they are not declared again: adding them a second time makes resource processing fail with
+    // "duplicate entry".
     sourceSets {
         integrationTest {
-            java.srcDir 'src/integrationTest/java'
-            resources.srcDir 'src/integrationTest/resources'
             compileClasspath += sourceSets.main.output + sourceSets.test.output
             runtimeClasspath += sourceSets.main.output + sourceSets.test.output
         }

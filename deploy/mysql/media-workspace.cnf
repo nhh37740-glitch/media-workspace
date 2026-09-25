@@ -1,0 +1,30 @@
+# MySQL 8.4 tuning for a 2 vCPU / 2 GiB demo host.
+#
+# Buffer pool is intentionally small: the demo database holds task and media metadata, not media
+# bytes (those live on the shared storage volume). Bind to loopback only: MySQL is never exposed
+# on a public interface.
+[mysqld]
+bind-address                 = 127.0.0.1
+mysqlx-bind-address          = 127.0.0.1
+port                         = 3306
+
+innodb_buffer_pool_size      = 96M
+innodb_redo_log_capacity     = 64M
+innodb_flush_log_at_trx_commit = 1
+innodb_lock_wait_timeout     = 20
+
+performance_schema           = OFF
+max_connections              = 80
+table_open_cache             = 400
+tmp_table_size               = 16M
+max_heap_table_size          = 16M
+
+character-set-server         = utf8mb4
+collation-server             = utf8mb4_0900_ai_ci
+default-time-zone            = '+00:00'
+transaction-isolation        = READ-COMMITTED
+
+log_bin                      = OFF
+slow_query_log               = ON
+long_query_time              = 1
+slow_query_log_file          = /var/log/mysql/slow.log

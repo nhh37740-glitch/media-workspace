@@ -1,0 +1,14 @@
+# JVM options for the Worker process.
+#
+# The worker holds file streams and process pipes, not media bytes: chunk sizes are bounded and
+# the merge stream is buffered, so the heap stays small regardless of input size. Heap is kept
+# below the API's because the worker additionally spends memory on child processes.
+-Xms128m
+-Xmx192m
+-XX:MaxMetaspaceSize=128m
+-XX:ReservedCodeCacheSize=64m
+-Xss512k
+-XX:+UseSerialGC
+-XX:+ExitOnOutOfMemoryError
+-Dfile.encoding=UTF-8
+-Duser.timezone=UTC

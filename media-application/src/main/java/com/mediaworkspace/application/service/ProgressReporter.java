@@ -1,7 +1,6 @@
 package com.mediaworkspace.application.service;
 
 import com.mediaworkspace.application.model.ExecutionIdentity;
-import com.mediaworkspace.application.port.repository.TaskRepository;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -11,22 +10,27 @@ import java.time.Instant;
  * Rate-limits progress writes to at most one per task per second.
  *
  * <p>FFmpeg reports progress far more often than that, and every write is a database round trip
- * that competes with the execution itself. Values are clamped to 0..99: reaching 100 is reserved
- * for the publish transaction, so a progress frame can never make a task look finished.
+ * that competes with the execution it is reporting on. Values are clamped to 0..99: reaching 100 is
+ * reserved for the publish transaction, so a progress frame can never make an unfinished task look
+ * complete.
+ *
+ * <p>Writes go through {@link TaskPublicationService} rather than the repository directly, so each
+ * one is a real transaction and not a bare statement on a connection that happens to be open.
  */
 public class ProgressReporter {
 
     /** Minimum interval between two persisted progress values for one execution. */
     public static final Duration MIN_INTERVAL = Duration.ofSeconds(1);
 
-    private final TaskRepository tasks;
+    private final TaskPublicationService publications;
     private final Clock clock;
     private final ExecutionIdentity identity;
     private Instant lastWrite = Instant.EPOCH;
     private int lastValue = -1;
 
-    public ProgressReporter(TaskRepository tasks, Clock clock, ExecutionIdentity identity) {
-        this.tasks = tasks;
+    public ProgressReporter(TaskPublicationService publications, Clock clock,
+                            ExecutionIdentity identity) {
+        this.publications = publications;
         this.clock = clock;
         this.identity = identity;
     }
@@ -45,7 +49,7 @@ public class ProgressReporter {
         }
         lastWrite = now;
         lastValue = clamped;
-        return tasks.updateProgress(identity, clamped);
+        return publications.recordProgress(identity, clamped);
     }
 
     /** Whether a progress write was ever attempted; used to decide whether to reset on retry. */

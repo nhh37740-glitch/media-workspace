@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  API process logging.
+
+  Two appenders with different jobs. The console appender is for a human watching a terminal during
+  development. The file appender writes one JSON object per line, so a task's whole path can be
+  reconstructed by searching on traceId or taskId rather than by reading prose.
+
+  Every correlation field travels in the MDC under the names media-contracts defines, which is why
+  the JSON output carries them as first-class members rather than inside the message.
+
+  Nothing here can prevent a password being logged; that is the callers' responsibility. What the
+  configuration does enforce is that no logger is set to DEBUG by default, since DEBUG is where a
+  careless line would surface.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <springProperty scope="context" name="serviceName" source="spring.application.name" defaultValue="media-api"/>
+    <property name="LOG_DIR" value="${LOG_DIR:-/opt/media-workspace/var/logs/api}"/>
+
+    <!-- Human-readable console output for a terminal. -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!--
+      One JSON object per line. Rolling by day and by size, keeping seven days and capping the
+      total, so a long-running demo cannot fill the volume with its own logs.
+    -->
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/media-api.json</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/media-api.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.classic.encoder.JsonEncoder">
+            <withArguments>false</withArguments>
+        </encoder>
+    </appender>
+
+    <!--
+      Dispositions for libraries that are noisy at INFO. Tomcat's session manager and Hikari both
+      log per-connection detail that would drown the business records.
+    -->
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="org.apache.zookeeper" level="WARN"/>
+    <logger name="org.springframework.kafka" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.apache.tomcat" level="WARN"/>
+    <logger name="org.mybatis" level="WARN"/>
+    <logger name="com.mediaworkspace" level="${MW_LOG_LEVEL:-INFO}"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="JSON_FILE"/>
+    </root>
+</configuration>

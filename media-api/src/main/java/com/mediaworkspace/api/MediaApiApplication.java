@@ -6,10 +6,15 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Executable entry point of the API process.
  *
- * <p>The API serves HTTP/SSE, owns HTTP and session security, schedules upload finalization, and
- * publishes outbox events. It never executes FFmpeg.
+ * <p>The scan covers the whole {@code com.mediaworkspace} package so the persistence, messaging and
+ * storage configuration classes are picked up. Each adapter contributes only configuration and
+ * beans; the worker's classes are not on this process's classpath at all, since the api module does
+ * not depend on it, so a shared scan root cannot accidentally start worker components here.
+ *
+ * <p>The API serves HTTP and SSE, owns the session and CSRF boundary, schedules upload finalization
+ * and outbox delivery. It never executes FFmpeg: no transcoding adapter is on this classpath.
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = "com.mediaworkspace")
 public class MediaApiApplication {
 
     public static void main(String[] args) {

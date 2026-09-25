@@ -1,0 +1,14 @@
+# JVM options for the API process.
+#
+# Sized from the measured budget on a 2 vCPU / 2 GiB host shared with MySQL, a KRaft broker and
+# the cloud provider's own agents (~400 MiB that this project must not touch). Serial GC is chosen
+# over G1 because the heap is small and pause targets do not justify G1's extra footprint.
+-Xms128m
+-Xmx192m
+-XX:MaxMetaspaceSize=128m
+-XX:ReservedCodeCacheSize=64m
+-Xss512k
+-XX:+UseSerialGC
+-XX:+ExitOnOutOfMemoryError
+-Dfile.encoding=UTF-8
+-Duser.timezone=UTC

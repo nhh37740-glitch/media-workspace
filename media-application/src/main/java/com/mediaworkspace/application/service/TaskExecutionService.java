@@ -23,6 +23,7 @@ import com.mediaworkspace.domain.task.TaskAction;
 import com.mediaworkspace.domain.task.TaskStateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,6 +54,7 @@ public class TaskExecutionService {
     private static final Logger log = LoggerFactory.getLogger(TaskExecutionService.class);
 
     private final TaskRepository tasks;
+    private final TaskPublicationService publications;
     private final MediaRepository media;
     private final MediaStorage storage;
     private final Transcoder transcoder;
@@ -62,10 +64,12 @@ public class TaskExecutionService {
     private final BackoffPolicy backoff;
     private final Clock clock;
 
-    public TaskExecutionService(TaskRepository tasks, MediaRepository media, MediaStorage storage,
+    public TaskExecutionService(TaskRepository tasks, TaskPublicationService publications,
+                                MediaRepository media, MediaStorage storage,
                                 Transcoder transcoder, MediaWorkspaceProperties properties,
                                 RandomGenerator random, Clock clock) {
         this.tasks = tasks;
+        this.publications = publications;
         this.media = media;
         this.storage = storage;
         this.transcoder = transcoder;
@@ -79,6 +83,7 @@ public class TaskExecutionService {
      *
      * @return the lease, or empty when nothing is due
      */
+    @Transactional
     public Optional<TaskLease> claim(String workerId) {
         return tasks.claim(workerId, properties.taskLeaseDuration());
     }
@@ -116,11 +121,11 @@ public class TaskExecutionService {
         if (maybeMedia.isEmpty()) {
             // The media was deleted while the task waited. Cancel rather than fail: there is
             // nothing to retry and the user asked for the media to be gone.
-            tasks.cancel(lease.task().id(), "MEDIA_DELETED");
+            publications.cancelForDeletedMedia(lease.task().id());
             return ExecutionOutcome.DISCARDED;
         }
         MediaRecord source = maybeMedia.get();
-        ProgressReporter progress = new ProgressReporter(tasks, clock, lease.identity());
+        ProgressReporter progress = new ProgressReporter(publications, clock, lease.identity());
 
         Path outputFile;
         Path posterFile;
@@ -135,9 +140,12 @@ public class TaskExecutionService {
             outputFile = attemptDir.resolve("output.mp4");
             posterFile = attemptDir.resolve("poster.jpg");
 
+            // The probed source duration is handed to the encoder so it can tell a complete result
+            // from one salvaged out of a damaged container, which a zero exit code cannot.
+            long sourceDurationMs = probe.durationMs() == null ? 0 : probe.durationMs();
             TranscodeResult result = transcoder.execute(
                     new TranscodeSpec(sourcePath, outputFile, posterFile, lease.task().preset(),
-                            properties.taskDeadline(), 2, 64 * 1024),
+                            sourceDurationMs, properties.taskDeadline(), 2, 64 * 1024),
                     progress::report, cancel);
             return publish(lease, result, attemptId);
         } catch (TranscodeException e) {
@@ -186,7 +194,7 @@ public class TaskExecutionService {
         PublishedArtifacts artifacts = new PublishedArtifacts(
                 prefix + "/output.mp4", prefix + "/poster.jpg",
                 result.outputBytes(), result.durationMs(), result.width(), result.height());
-        boolean published = tasks.complete(lease, artifacts, attemptId);
+        boolean published = publications.publishSuccess(lease, artifacts, attemptId);
         if (!published) {
             log.info("task {} execution {} was superseded; its output is left unreferenced",
                     lease.task().id(), lease.task().executionEpoch());
@@ -222,7 +230,7 @@ public class TaskExecutionService {
         Duration retryDelay = terminal ? Duration.ZERO : backoff.delayAfter(attemptsConsumed);
         String safeSummary = sanitize(summary, standardErrorTail);
 
-        if (!tasks.fail(lease, errorCode, safeSummary, exitCode, retryDelay, terminal)) {
+        if (!publications.recordFailure(lease, errorCode, safeSummary, exitCode, retryDelay, terminal)) {
             return ExecutionOutcome.DISCARDED;
         }
         if (terminal) {

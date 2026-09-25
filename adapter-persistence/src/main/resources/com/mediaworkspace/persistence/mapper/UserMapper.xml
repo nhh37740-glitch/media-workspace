@@ -36,4 +36,10 @@
         VALUES (#{id}, #{username}, #{passwordHash}, #{enabled}, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
     </insert>
 
+    <update id="updatePassword">
+        UPDATE app_user
+        SET password_hash = #{passwordHash}, updated_at = UTC_TIMESTAMP(6)
+        WHERE id = #{id}
+    </update>
+
 </mapper>

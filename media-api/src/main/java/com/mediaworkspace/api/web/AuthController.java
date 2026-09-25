@@ -1,0 +1,107 @@
+package com.mediaworkspace.api.web;
+
+import com.mediaworkspace.api.config.SecurityConfiguration;
+import com.mediaworkspace.contracts.dto.CsrfResponse;
+import com.mediaworkspace.contracts.dto.LoginRequest;
+import com.mediaworkspace.contracts.dto.UserView;
+import com.mediaworkspace.contracts.error.ApiErrorCode;
+import com.mediaworkspace.application.error.ApplicationException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Sign-in, sign-out and the CSRF token.
+ *
+ * <p>Login is an ordinary controller method rather than the framework's form login, because the
+ * contract exchanges JSON and expects a JSON error body on failure. The framework still performs
+ * the credential check and the session handling; only the request and response shapes differ.
+ */
+@RestController
+@RequestMapping("/api/v1/auth")
+public class AuthController {
+
+    private final AuthenticationManager authenticationManager;
+    private final CurrentUser currentUser;
+
+    public AuthController(AuthenticationManager authenticationManager, CurrentUser currentUser) {
+        this.authenticationManager = authenticationManager;
+        this.currentUser = currentUser;
+    }
+
+    /**
+     * Hands the browser a CSRF token.
+     *
+     * <p>Available without a session: the token is needed to log in, so it cannot require being
+     * logged in. The token still comes from the framework's own repository, not from a value this
+     * class invents.
+     */
+    @GetMapping("/csrf")
+    public CsrfResponse csrf(HttpServletRequest request) {
+        CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+        if (token == null) {
+            throw new IllegalStateException("the security filter chain did not supply a CSRF token");
+        }
+        return new CsrfResponse(token.getToken(), SecurityConfiguration.CSRF_HEADER);
+    }
+
+    /**
+     * Signs in.
+     *
+     * <p>A wrong password and an unknown user are answered identically: the response must not tell
+     * an attacker which of the two it was. The session id is changed on success, which is what stops
+     * a session fixed before the login from being valid after it.
+     */
+    @PostMapping("/login")
+    public ResponseEntity<UserView> login(@Valid @RequestBody LoginRequest request,
+                                          HttpServletRequest httpRequest) {
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.username(), request.password()));
+        } catch (AuthenticationException e) {
+            // BadCredentialsException, DisabledException and LockedException all land here. The
+            // response must not distinguish "no such user" from "wrong password", and it must not
+            // reveal whether an account is disabled either.
+            throw new ApplicationException(ApiErrorCode.INVALID_CREDENTIALS, "invalid credentials");
+        }
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        // Creates the session if there is none and adopts the authenticated context into it.
+        httpRequest.getSession(true);
+
+        return ResponseEntity.ok(new UserView(String.valueOf(authentication.getPrincipal()),
+                request.username()));
+    }
+
+    /** Signs out: the session is invalidated, so the cookie is useless afterwards. */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletRequest request) {
+        var session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        SecurityContextHolder.clearContext();
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/me")
+    public UserView me() {
+        return currentUser.requireView();
+    }
+}

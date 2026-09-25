@@ -141,16 +141,24 @@ public class ShareService {
             throw ApplicationException.notFound("share not found", link.id());
         }
         String sessionId = UUID.randomUUID().toString();
+        // The session never outlives the share it came from, and is capped at a day so a link with a
+        // week left does not keep a cookie alive longer than needed.
         Instant sessionExpiry = link.expiresAt().isBefore(now.plus(Duration.ofDays(1)))
                 ? link.expiresAt()
                 : now.plus(Duration.ofDays(1));
         shareSessions.insert(new ShareSession(sessionId, link.id(), link.mediaId(), sessionExpiry));
-        return new Redemption(sessionId,
+        return new Redemption(sessionId, sessionExpiry,
                 new ShareAccessView(record.title(), record.durationMs(), link.expiresAt().toString()));
     }
 
-    /** Result of redeeming a token: the cookie value and the safe description to show. */
-    public record Redemption(String sessionId, ShareAccessView view) {
+    /**
+     * Result of redeeming a token.
+     *
+     * @param sessionId        value for the HttpOnly cookie
+     * @param sessionExpiresAt when the session ends; bounds the cookie's own lifetime
+     * @param view             safe description to show the visitor
+     */
+    public record Redemption(String sessionId, Instant sessionExpiresAt, ShareAccessView view) {
     }
 
     /**

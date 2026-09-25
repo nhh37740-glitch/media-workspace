@@ -1,0 +1,119 @@
+# API process configuration.
+#
+# Every value that differs between environments comes from the environment or from the runtime
+# configuration file. No credential has a default here: a missing password fails at startup instead
+# of silently connecting as some built-in account.
+server:
+  port: ${HTTP_PORT:8080}
+  shutdown: graceful
+  max-http-request-header-size: 16KB
+  tomcat:
+    # A chunk upload is a request body, so the limit must exceed the chunk size. The application
+    # still enforces its own per-chunk limit; this is the transport guard.
+    max-swallow-size: 16MB
+    threads:
+      max: 40
+      min-spare: 4
+    accept-count: 100
+
+spring:
+  application:
+    name: media-api
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:media_workspace}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&sessionVariables=transaction_isolation='READ-COMMITTED'&characterEncoding=UTF-8
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # Small pool: the host has two cores and the worker shares the same database.
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 10000
+      max-lifetime: 900000
+      pool-name: media-api-pool
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    # The schema is migrated by one process at a time. Two processes racing a migration is the
+    # failure this lock prevents, and it is held for the whole migration, not per statement.
+    lock-retry-count: 10
+    validate-on-migrate: true
+
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
+      table-name: SPRING_SESSION
+    timeout: 8h
+
+  servlet:
+    multipart:
+      enabled: false
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:127.0.0.1:9092}
+
+  jackson:
+    default-property-inclusion: always
+
+mediaworkspace:
+  kafka:
+    topic-prefix: ${KAFKA_TOPIC_PREFIX:}
+    listener-concurrency: 1
+    send-timeout-ms: 15000
+  storage:
+    root: ${STORAGE_ROOT}
+    fsync-on-publish: false
+  limits:
+    chunk-size-bytes: ${CHUNK_SIZE_BYTES:8388608}
+    max-upload-size-bytes: ${MAX_UPLOAD_SIZE_BYTES:1073741824}
+    workspace-quota-bytes: ${WORKSPACE_QUOTA_BYTES:10737418240}
+    max-open-uploads-per-user: ${MAX_OPEN_UPLOADS_PER_USER:3}
+    max-unfinished-tasks: ${MAX_UNFINISHED_TASKS:100}
+    worker-concurrency: ${WORKER_CONCURRENCY:2}
+    open-upload-ttl-hours: ${OPEN_UPLOAD_TTL_HOURS:24}
+    gc-grace-period-hours: ${GC_GRACE_PERIOD_HOURS:24}
+    max-active-shares-per-media: ${MAX_ACTIVE_SHARES_PER_MEDIA:20}
+  scheduler:
+    enabled: true
+    # Finalizer and maintenance passes. Kept coarse: each pass is a short transaction and the host
+    # is shared with the worker, MySQL and the broker.
+    finalize-interval-ms: 1000
+    outbox-interval-ms: 1000
+    maintenance-interval-ms: 15000
+    sse-poll-interval-ms: 1000
+    sse-timeout-ms: 900000
+    outbox-batch-size: 25
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      # Liveness answers whether the process is up; readiness answers whether it can serve, which
+      # requires a working database. Kafka being down is reported as degraded, not as not-ready:
+      # the API can still accept uploads and hold their events in the outbox.
+      probes:
+        enabled: true
+      show-details: when-authorized
+      group:
+        readiness:
+          include: db
+        liveness:
+          include: ping
+  health:
+    db:
+      enabled: true
+
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    com.mediaworkspace: INFO

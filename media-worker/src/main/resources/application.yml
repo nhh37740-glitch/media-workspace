@@ -1,0 +1,97 @@
+# Worker process configuration.
+#
+# The worker exposes no public business port. Its only listening socket is the actuator health
+# endpoint, bound to loopback so a health probe cannot be reached from outside the host.
+server:
+  port: ${WORKER_HEALTH_PORT:8090}
+  address: 127.0.0.1
+  shutdown: graceful
+
+spring:
+  application:
+    name: media-worker
+  main:
+    # The worker has no web container beyond the health endpoint, so it is not started eagerly;
+    # it has no servlet stack for a task to depend on.
+    web-application-type: servlet
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:media_workspace}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&sessionVariables=transaction_isolation='READ-COMMITTED'&characterEncoding=UTF-8
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # The worker holds a few long-running transactions at most; the rest of the pool serves short
+      # claim, renew and publish transactions.
+      maximum-pool-size: 6
+      minimum-idle: 2
+      connection-timeout: 10000
+      max-lifetime: 900000
+      pool-name: media-worker-pool
+
+  flyway:
+    # The worker never migrates. A migration is run once, by the API or by an explicit migrate-only
+    # command, so two processes cannot race the schema.
+    enabled: false
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:127.0.0.1:9092}
+
+mediaworkspace:
+  kafka:
+    topic-prefix: ${KAFKA_TOPIC_PREFIX:}
+    listener-concurrency: 1
+    send-timeout-ms: 15000
+  storage:
+    root: ${STORAGE_ROOT}
+    fsync-on-publish: false
+  transcode:
+    ffmpeg: ${FFMPEG_PATH:ffmpeg}
+    ffprobe: ${FFPROBE_PATH:ffprobe}
+    # The contract's ceiling for one execution. A task that exceeds it is failed as PROCESS_TIMEOUT
+    # and is retryable, so a pathological input cannot occupy a slot forever.
+    task-deadline-minutes: ${TASK_DEADLINE_MINUTES:30}
+  limits:
+    chunk-size-bytes: ${CHUNK_SIZE_BYTES:8388608}
+    max-upload-size-bytes: ${MAX_UPLOAD_SIZE_BYTES:1073741824}
+    workspace-quota-bytes: ${WORKSPACE_QUOTA_BYTES:10737418240}
+    max-open-uploads-per-user: ${MAX_OPEN_UPLOADS_PER_USER:3}
+    max-unfinished-tasks: ${MAX_UNFINISHED_TASKS:100}
+    worker-concurrency: ${WORKER_CONCURRENCY:2}
+    open-upload-ttl-hours: ${OPEN_UPLOAD_TTL_HOURS:24}
+    gc-grace-period-hours: ${GC_GRACE_PERIOD_HOURS:24}
+    max-active-shares-per-media: ${MAX_ACTIVE_SHARES_PER_MEDIA:20}
+  worker:
+    claim-interval-ms: 1000
+    renew-interval-ms: 5000
+    outbox-interval-ms: 1000
+    recovery-interval-ms: 15000
+    orphan-task-interval-ms: 30000
+    sweep-interval-ms: 600000
+    sweep-initial-delay-ms: 60000
+    outbox-batch-size: 25
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # A worker whose database is unreachable must not claim; a worker whose broker is down can
+        # still finish what it has already claimed, so Kafka is reported as degraded rather than
+        # as not-ready.
+        readiness:
+          include: db
+        liveness:
+          include: ping
+
+logging:
+  level:
+    root: INFO
+    com.mediaworkspace: INFO
