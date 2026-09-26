@@ -36,7 +36,7 @@ install_packages() {
   apt-get update -qq
   apt-get install -y -qq \
     openjdk-17-jdk-headless openjdk-21-jdk-headless \
-    ffmpeg nginx mysql-server curl unzip zip jq rsync openssl >/dev/null
+    ffmpeg nginx mysql-server curl unzip zip jq rsync openssl python3-jsonschema >/dev/null
 }
 
 configure_mysql() {
