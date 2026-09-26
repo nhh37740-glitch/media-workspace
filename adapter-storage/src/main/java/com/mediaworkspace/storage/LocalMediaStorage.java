@@ -119,8 +119,18 @@ public class LocalMediaStorage implements MediaStorage {
 
     @Override
     public StoredObject promoteFile(String storageKey, Path sourceFile) throws StorageException {
-        if (!isInsideRoot(sourceFile)) {
-            throw new InvalidKeyException("refusing to promote a file outside the storage root");
+        if (!sourceFile.toAbsolutePath().normalize().startsWith(root.resolve(TEMP_PREFIX))) {
+            throw new InvalidKeyException("refusing to promote a file outside the temporary area");
+        }
+        boolean sourceInsideTemporaryArea;
+        try {
+            sourceInsideTemporaryArea = sourceFile.toRealPath()
+                    .startsWith(root.toRealPath().resolve(TEMP_PREFIX));
+        } catch (IOException e) {
+            throw new StorageException("cannot verify the source file: " + e.getMessage(), e);
+        }
+        if (!sourceInsideTemporaryArea) {
+            throw new InvalidKeyException("refusing to promote a file outside the temporary area");
         }
         Path target = resolve(storageKey);
         prepareParent(target);
@@ -197,7 +207,12 @@ public class LocalMediaStorage implements MediaStorage {
     @Override
     public boolean deleteUnreferenced(String storageKey) throws StorageException {
         Path path = resolve(storageKey);
-        return deleteQuietly(path);
+        try {
+            Files.deleteIfExists(path);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     @Override

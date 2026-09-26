@@ -162,6 +162,54 @@ class LocalMediaStorageTest {
     }
 
     @Test
+    @DisplayName("promoting a file inside the root but outside tmp is refused")
+    void refusesToPromoteNonTemporaryFile() throws Exception {
+        LocalMediaStorage storage = storage();
+        Path source = root.resolve("derived/source.mp4");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "existing object");
+
+        assertThatThrownBy(() -> storage.promoteFile("derived/m/1/1/output.mp4", source))
+                .isInstanceOf(MediaStorage.InvalidKeyException.class);
+        assertThatThrownBy(() -> storage.promoteFile("derived/m/1/1/output.mp4",
+                root.resolve("tmp/../derived/source.mp4")))
+                .isInstanceOf(MediaStorage.InvalidKeyException.class);
+        assertThat(Files.exists(source)).isTrue();
+    }
+
+    @Test
+    @DisplayName("a link under tmp cannot promote a file outside the temporary area")
+    void refusesToPromoteSymlinkToNonTemporaryFile() throws Exception {
+        LocalMediaStorage storage = storage();
+        Path source = root.resolve("derived/source.mp4");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "existing object");
+        Path link = root.resolve("tmp/linked-source.mp4");
+        Files.createDirectories(link.getParent());
+        try {
+            Files.createSymbolicLink(link, source);
+        } catch (UnsupportedOperationException | IOException e) {
+            return; // The platform forbids creating links; nothing to assert here.
+        }
+
+        assertThatThrownBy(() -> storage.promoteFile("derived/m/1/1/output.mp4", link))
+                .isInstanceOf(MediaStorage.InvalidKeyException.class);
+        assertThat(Files.exists(source)).isTrue();
+    }
+
+    @Test
+    @DisplayName("deleting an unreferenced object is successful when it was already absent")
+    void deleteUnreferencedIsIdempotent() throws Exception {
+        LocalMediaStorage storage = storage();
+        String key = "chunk/u1/0-abc";
+        storage.putImmutable(key, new ByteArrayInputStream("bytes".getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(storage.deleteUnreferenced(key)).isTrue();
+        assertThat(storage.deleteUnreferenced(key)).isTrue();
+        assertThat(storage.exists(key)).isFalse();
+    }
+
+    @Test
     @DisplayName("constructing against an unusable root fails immediately, naming the path")
     void refusesUnusableRoot(@TempDir Path parent) throws Exception {
         // A root whose parent is a regular file can never be created. The failure must happen at
