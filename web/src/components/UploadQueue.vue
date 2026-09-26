@@ -36,9 +36,7 @@ const phaseLabels = {
   aborted: '已取消'
 }
 
-const pendingCount = computed(
-  () => entries.value.filter((entry) => entry.phase !== 'done' && entry.phase !== 'failed').length
-)
+const pendingCount = computed(() => entries.value.filter((entry) => entry.phase === 'queued').length)
 
 function addFiles(files) {
   for (const file of files) {
@@ -66,9 +64,7 @@ function removeEntry(entry) {
 }
 
 function clearFinished() {
-  entries.value = entries.value.filter(
-    (entry) => entry.phase !== 'done' && entry.phase !== 'failed'
-  )
+  entries.value = entries.value.filter((entry) => entry.phase !== 'done')
 }
 
 async function startOne(entry) {
@@ -134,6 +130,10 @@ async function retryOne(entry) {
 }
 
 async function cancelOne(entry) {
+  if (entry.phase === 'queued' || entry.phase === 'aborted') {
+    removeEntry(entry)
+    return
+  }
   if (entry.controller) {
     entry.controller.abort()
     return
@@ -146,7 +146,9 @@ async function cancelOne(entry) {
     } catch (error) {
       ElMessage.warning(`终止失败：${error.message}`)
     }
+    return
   }
+  removeEntry(entry)
 }
 
 function statusType(entry) {
@@ -167,7 +169,7 @@ function stateTag(entry) {
   <el-card class="upload-card">
     <template #header>
       <div class="header">
-        <span>上传素材</span>
+        <div><span class="upload-title">上传素材</span><div class="upload-subtitle">新文件将进入处理队列</div></div>
         <div class="actions">
           <el-button
             size="small"
@@ -191,7 +193,7 @@ function stateTag(entry) {
       :disabled="busy"
       @change="onFileChange"
     >
-      <div class="drop-zone">把视频拖到这里，或点击选择文件</div>
+      <div class="drop-zone"><span class="drop-icon" aria-hidden="true">↑</span><strong>把视频拖到这里，或点击选择文件</strong><span>选择后可在下方查看每个文件的进度</span></div>
       <template #tip>
         <div class="tip">
           支持 MP4/MOV/MKV。选择后点击“开始上传”，分片、重试与合并由浏览器自动完成。
@@ -199,7 +201,7 @@ function stateTag(entry) {
       </template>
     </el-upload>
 
-    <el-table v-if="entries.length" :data="entries" size="small" class="queue">
+    <el-table v-if="entries.length" :data="entries" size="small" class="queue desktop-table">
       <el-table-column prop="name" label="文件" min-width="180" show-overflow-tooltip />
       <el-table-column label="大小" width="100">
         <template #default="{ row }">{{ formatBytes(row.size) }}</template>
@@ -237,6 +239,19 @@ function stateTag(entry) {
         </template>
       </el-table-column>
     </el-table>
+    <div v-if="entries.length" class="mobile-list queue" aria-label="上传队列">
+      <article v-for="entry in entries" :key="entry.key" class="mobile-item">
+        <h3 class="mobile-item-title">{{ entry.name }}</h3>
+        <div class="mobile-item-meta">{{ formatBytes(entry.size) }} · {{ phaseLabels[entry.phase] ?? entry.phase }}</div>
+        <el-progress :percentage="entry.percent" :status="statusType(entry)" :stroke-width="8" class="upload-progress" />
+        <div v-if="entry.message" class="mobile-item-meta">{{ entry.message }}</div>
+        <div class="mobile-item-actions">
+          <el-button v-if="entry.phase === 'failed'" type="primary" plain @click="retryOne(entry)">重试</el-button>
+          <el-button v-if="entry.phase !== 'done'" type="danger" plain @click="cancelOne(entry)">{{ entry.phase === 'uploading' ? '停止' : '移除' }}</el-button>
+          <el-button v-else @click="removeEntry(entry)">移除</el-button>
+        </div>
+      </article>
+    </div>
 
     <el-alert
       v-if="!entries.length"
@@ -255,14 +270,27 @@ function stateTag(entry) {
   align-items: center;
   justify-content: space-between;
 }
+.upload-title { font-size: 16px; font-weight: 720; }
+.upload-subtitle { margin-top: 5px; color: #71869a; font-size: 12px; font-weight: 400; }
 .actions {
   display: flex;
   gap: 8px;
 }
 .drop-zone {
-  padding: 24px;
-  color: var(--el-text-color-secondary);
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px;
+  color: #587084;
 }
+.drop-zone strong { color: #284965; font-size: 14px; }
+.drop-zone span:last-child { font-size: 12px; }
+.drop-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: #e7f4f5; color: #167d91; font-size: 23px; line-height: 1; }
+.upload-card :deep(.el-upload-dragger) { border: 1.5px dashed #a8cdd3; border-radius: 12px; background: #f7fbfc; }
+.upload-card :deep(.el-upload-dragger:hover) { border-color: #167d91; }
 .tip {
   margin-top: 8px;
   font-size: 12px;
@@ -281,5 +309,13 @@ function stateTag(entry) {
 }
 .empty {
   margin-top: 12px;
+}
+.upload-progress { margin: 12px 0 6px; }
+@media (max-width: 760px) {
+  .header { align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .actions { width: 100%; }
+  .actions .el-button { flex: 1; min-height: 42px; margin: 0; }
+  .drop-zone { min-height: 132px; padding: 14px; text-align: center; }
+  .tip { line-height: 1.6; }
 }
 </style>

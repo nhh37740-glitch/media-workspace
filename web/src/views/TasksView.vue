@@ -142,6 +142,13 @@ const activeCount = computed(() => rows.filter((row) => isTaskActive(row.state))
 
 <template>
   <div class="page">
+    <div class="page-intro">
+      <div>
+        <p class="page-eyebrow">PROCESSING / 实时进度</p>
+        <h1 class="page-title">处理任务</h1>
+        <p class="page-description">查看转码进度，处理失败和重试任务。</p>
+      </div>
+    </div>
     <el-card class="toolbar">
       <div class="toolbar-row">
         <el-select v-model="spaceId" class="space-select" placeholder="选择空间" @change="load">
@@ -163,7 +170,7 @@ const activeCount = computed(() => rows.filter((row) => isTaskActive(row.state))
     <el-alert v-if="failure" type="error" :closable="false" show-icon :title="failure" class="gap" />
 
     <el-card v-loading="loading" class="gap">
-      <el-table :data="rows" empty-text="这个空间还没有处理任务">
+      <el-table :data="rows" empty-text="这个空间还没有处理任务" class="desktop-table">
         <el-table-column label="素材" min-width="200">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">{{ row.title }}</el-button>
@@ -222,6 +229,23 @@ const activeCount = computed(() => rows.filter((row) => isTaskActive(row.state))
           </template>
         </el-table-column>
       </el-table>
+      <div class="mobile-list" aria-label="处理任务列表">
+        <el-empty v-if="!rows.length" description="这个空间还没有处理任务" />
+        <article v-for="row in rows" :key="row.taskId" class="mobile-item">
+          <div class="task-mobile-heading">
+            <h3 class="mobile-item-title">{{ row.title }}</h3>
+            <el-tag :type="describeTaskState(row.state).type" size="small">{{ describeTaskState(row.state).label }}</el-tag>
+          </div>
+          <el-progress :percentage="row.progress" :status="row.state === 'FAILED' ? 'exception' : undefined" :stroke-width="8" class="mobile-progress" />
+          <div class="mobile-item-meta">第 {{ row.generation }} 代 · 第 {{ row.attempt }} 次尝试 · {{ formatRelative(row.updatedAt) }}</div>
+          <div v-if="describeError(row.errorCode)" class="mobile-error">{{ describeError(row.errorCode).text }}</div>
+          <div class="mobile-item-actions">
+            <el-button type="primary" plain @click="openDetail(row)">查看详情</el-button>
+            <el-button :disabled="!isTaskActive(row.state)" :loading="cancelingId === row.taskId" @click="cancel(row)">取消</el-button>
+            <el-button type="warning" plain :disabled="!isTaskRetryable(row.state)" :loading="retryingId === row.taskId" @click="retry(row)">重试</el-button>
+          </div>
+        </article>
+      </div>
     </el-card>
   </div>
 </template>
@@ -247,4 +271,8 @@ const activeCount = computed(() => rows.filter((row) => isTaskActive(row.state))
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
+.task-mobile-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.task-mobile-heading .el-tag { flex: none; }
+.mobile-progress { margin: 14px 0 7px; }
+.mobile-error { margin-top: 8px; padding: 9px 11px; border-radius: 8px; background: #fff5f3; color: #a54638; font-size: 12px; }
 </style>

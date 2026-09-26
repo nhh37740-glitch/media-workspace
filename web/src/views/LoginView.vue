@@ -37,9 +37,15 @@ async function submit() {
 
 <template>
   <div class="login-page">
+    <div class="login-intro">
+      <div class="login-mark" aria-hidden="true">M</div>
+      <p class="page-eyebrow">MEDIA WORKSPACE</p>
+      <h1>让团队素材，始终井然有序。</h1>
+      <p>上传、处理、共享影音内容。所有任务状态和访问权限均由服务器确认。</p>
+    </div>
     <el-card class="login-card">
       <template #header>
-        <div class="title">团队影音素材平台</div>
+        <div class="title">欢迎回来</div>
         <div class="subtitle">使用已有账号登录，账号由管理员通过命令行创建</div>
       </template>
       <el-form label-position="top" @submit.prevent="submit">
@@ -71,26 +77,44 @@ async function submit() {
 
 <style scoped>
 .login-page {
-  display: flex;
-  justify-content: center;
-  padding-top: 10vh;
+  min-height: calc(100dvh - 80px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 440px);
+  align-items: center;
+  gap: clamp(28px, 7vw, 110px);
+  max-width: 1080px;
+  margin: 0 auto;
 }
+.login-intro { padding: 24px 0; }
+.login-mark { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 28px; border-radius: 18px; background: linear-gradient(145deg, #1c9caa, #1b6388); color: white; font-size: 35px; font-weight: 800; box-shadow: 0 14px 30px rgba(24, 113, 137, .2); }
+.login-intro h1 { max-width: 550px; margin: 0; color: #183653; font-size: clamp(36px, 4vw, 54px); line-height: 1.16; letter-spacing: -.05em; }
+.login-intro > p:last-child { max-width: 450px; margin: 18px 0 0; color: #698095; font-size: 16px; line-height: 1.8; }
 .login-card {
-  width: 380px;
+  width: 100%;
+  box-shadow: 0 24px 56px rgba(22, 60, 91, .1);
 }
 .title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 23px;
+  font-weight: 750;
 }
 .subtitle {
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--el-text-color-secondary);
 }
 .submit {
   width: 100%;
+  min-height: 44px;
 }
 .failure {
   margin-bottom: 12px;
+}
+@media (max-width: 760px) {
+  .login-page { min-height: 0; grid-template-columns: 1fr; gap: 18px; padding: 20px 0; }
+  .login-intro { padding: 4px 8px; }
+  .login-mark { width: 46px; height: 46px; margin-bottom: 18px; border-radius: 14px; font-size: 28px; }
+  .login-intro h1 { font-size: 30px; }
+  .login-intro > p:last-child { margin-top: 10px; font-size: 13px; }
 }
 </style>

@@ -31,16 +31,24 @@ const loading = ref(true)
 const failure = ref('')
 const streamState = ref('idle')
 const snapshotVersion = ref(0)
+const detailColumns = ref(3)
+
+function updateColumns() {
+  detailColumns.value = window.innerWidth <= 760 ? 1 : window.innerWidth <= 1024 ? 2 : 3
+}
 
 let stream = null
 let refreshTimer = null
 
 onMounted(async () => {
+  updateColumns()
+  window.addEventListener('resize', updateColumns)
   await load()
   openStream()
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', updateColumns)
   closeStream()
   if (refreshTimer) {
     clearInterval(refreshTimer)
@@ -185,13 +193,20 @@ const errorInfo = computed(() => describeError(task.value?.errorCode))
 
 <template>
   <div v-loading="loading" class="page">
-    <el-page-header content="任务详情" @back="router.back()" class="gap" />
+    <div class="page-intro">
+      <div>
+        <p class="page-eyebrow">PROCESSING / 任务追踪</p>
+        <h1 class="page-title">任务详情</h1>
+        <p class="page-description">状态与执行历史以服务器记录为准。</p>
+      </div>
+    </div>
+    <el-page-header content="返回任务列表" @back="router.back()" />
 
     <el-alert v-if="failure" type="error" :closable="false" show-icon :title="failure" class="gap" />
 
     <template v-if="task">
       <el-card class="gap">
-        <el-descriptions :column="3" border>
+        <el-descriptions :column="detailColumns" border>
           <el-descriptions-item label="状态">
             <el-tag :type="describeTaskState(task.state).type">
               {{ describeTaskState(task.state).label }}
@@ -219,7 +234,7 @@ const errorInfo = computed(() => describeError(task.value?.errorCode))
               {{ mediaDetail.status }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item v-if="errorInfo" label="失败原因" :span="3">
+          <el-descriptions-item v-if="errorInfo" label="失败原因" :span="detailColumns">
             <div>{{ errorInfo.text }}</div>
             <div class="hint">错误码：{{ errorInfo.code }}</div>
           </el-descriptions-item>
@@ -242,7 +257,7 @@ const errorInfo = computed(() => describeError(task.value?.errorCode))
             <span class="hint">共 {{ attempts.total }} 次</span>
           </div>
         </template>
-        <el-table :data="attempts.items" empty-text="还没有执行记录">
+        <el-table :data="attempts.items" empty-text="还没有执行记录" class="desktop-table">
           <el-table-column label="代次" width="80">
             <template #default="{ row }">第 {{ row.generation }} 代</template>
           </el-table-column>
@@ -269,6 +284,19 @@ const errorInfo = computed(() => describeError(task.value?.errorCode))
             </template>
           </el-table-column>
         </el-table>
+        <div class="mobile-list" aria-label="执行历史">
+          <el-empty v-if="!attempts.items.length" description="还没有执行记录" />
+          <article v-for="row in attempts.items" :key="`${row.generation}-${row.attempt}`" class="mobile-item">
+            <div class="attempt-heading">
+              <h3 class="mobile-item-title">第 {{ row.generation }} 代 · 第 {{ row.attempt }} 次</h3>
+              <el-tag size="small" :type="row.state === 'SUCCEEDED' ? 'success' : row.state === 'LOST' ? 'warning' : 'danger'">{{ row.state }}</el-tag>
+            </div>
+            <div class="mobile-item-meta">开始：{{ formatInstant(row.startedAt) }}</div>
+            <div class="mobile-item-meta">结束：{{ formatInstant(row.finishedAt) }}</div>
+            <div v-if="row.errorCode" class="mobile-item-meta">错误码：{{ row.errorCode }}</div>
+            <div v-if="row.errorSummary" class="mobile-item-meta attempt-summary">{{ row.errorSummary }}</div>
+          </article>
+        </div>
         <div class="hint note">
           执行历史来自服务器的结构化记录。普通账号看不到服务器路径与原始堆栈，这些内容只保留在服务端日志中。
         </div>
@@ -299,6 +327,7 @@ const errorInfo = computed(() => describeError(task.value?.errorCode))
 }
 .id {
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .summary {
   font-size: 12px;
@@ -306,5 +335,14 @@ const errorInfo = computed(() => describeError(task.value?.errorCode))
 }
 .note {
   margin-top: 12px;
+}
+.attempt-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.attempt-heading .el-tag { flex: none; }
+.attempt-summary { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .actions { align-items: stretch; }
+  .actions .hint { flex-basis: 100%; }
+  .page :deep(.el-descriptions__label) { min-width: 92px; }
+  .page :deep(.el-card__body) { min-width: 0; }
 }
 </style>

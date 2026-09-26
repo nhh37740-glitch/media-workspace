@@ -163,6 +163,13 @@ async function revoke(share) {
 
 <template>
   <div v-loading="loading" class="page">
+    <div class="page-intro">
+      <div>
+        <p class="page-eyebrow">WORKSPACE / 团队协作</p>
+        <h1 class="page-title">共享空间</h1>
+        <p class="page-description">管理成员权限，创建有时效的素材分享。</p>
+      </div>
+    </div>
     <el-card class="toolbar">
       <div class="toolbar-row">
         <el-select v-model="spaceId" class="space-select" placeholder="选择空间" @change="load">
@@ -182,7 +189,7 @@ async function revoke(share) {
 
     <el-card v-if="isOwner" class="gap">
       <template #header>成员</template>
-      <el-table :data="members" empty-text="还没有其他成员">
+      <el-table :data="members" empty-text="还没有其他成员" class="desktop-table">
         <el-table-column prop="username" label="用户名" min-width="160" />
         <el-table-column label="角色" width="120">
           <template #default="{ row }">
@@ -207,6 +214,14 @@ async function revoke(share) {
           </template>
         </el-table-column>
       </el-table>
+      <div class="mobile-list" aria-label="空间成员">
+        <el-empty v-if="!members.length" description="还没有其他成员" />
+        <article v-for="member in members" :key="member.userId" class="mobile-item">
+          <div class="member-heading"><h3 class="mobile-item-title">{{ member.username }}</h3><el-tag size="small" :type="member.role === 'OWNER' ? 'warning' : 'info'">{{ member.role }}</el-tag></div>
+          <div class="mobile-item-meta id">{{ member.userId }}</div>
+          <div class="mobile-item-actions"><el-button type="danger" plain :disabled="member.role === 'OWNER'" @click="removeMember(member)">移除</el-button></div>
+        </article>
+      </div>
       <div class="hint">
         每个空间只有一个所有者，所有者不能被移除或降级。系统不提供全站用户搜索，添加成员需要对方的用户编号。
       </div>
@@ -214,7 +229,7 @@ async function revoke(share) {
 
     <el-card class="gap">
       <template #header>限时分享</template>
-      <el-table :data="mediaRows" empty-text="这个空间还没有素材">
+      <el-table :data="mediaRows" empty-text="这个空间还没有素材" class="desktop-table">
         <el-table-column prop="title" label="素材" min-width="200" />
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
@@ -236,6 +251,13 @@ async function revoke(share) {
           </template>
         </el-table-column>
       </el-table>
+      <div class="mobile-list" aria-label="可分享素材">
+        <el-empty v-if="!mediaRows.length" description="这个空间还没有素材" />
+        <article v-for="row in mediaRows" :key="row.mediaId" class="mobile-item">
+          <div class="member-heading"><h3 class="mobile-item-title">{{ row.title }}</h3><el-tag size="small" :type="row.status === 'READY' ? 'success' : 'info'">{{ row.status }}</el-tag></div>
+          <div class="mobile-item-actions"><el-button type="primary" plain :disabled="row.status !== 'READY' || !canShare" @click="openShares(row)">管理分享</el-button></div>
+        </article>
+      </div>
       <div class="hint">只有转码完成的素材可以分享；分享只授予该素材的播放权限。</div>
     </el-card>
 
@@ -260,7 +282,7 @@ async function revoke(share) {
         <el-button size="small" @click="copyLink">复制</el-button>
       </div>
 
-      <el-table :data="shareList" class="gap" empty-text="还没有分享">
+      <el-table :data="shareList" class="gap desktop-table" empty-text="还没有分享">
         <el-table-column label="分享编号" min-width="200">
           <template #default="{ row }"><code class="id">{{ row.shareId }}</code></template>
         </el-table-column>
@@ -282,6 +304,17 @@ async function revoke(share) {
           </template>
         </el-table-column>
       </el-table>
+      <div class="mobile-list gap" aria-label="分享列表">
+        <el-empty v-if="!shareList.length" description="还没有分享" />
+        <article v-for="item in shareList" :key="item.shareId" class="mobile-item">
+          <div class="member-heading">
+            <h3 class="mobile-item-title">分享 {{ item.shareId }}</h3>
+            <el-tag size="small" :type="item.revokedAt ? 'info' : 'success'">{{ item.revokedAt ? '已撤销' : '有效' }}</el-tag>
+          </div>
+          <div class="mobile-item-meta">到期：{{ formatInstant(item.expiresAt) }}</div>
+          <div class="mobile-item-actions"><el-button type="danger" plain :disabled="!!item.revokedAt" @click="revoke(item)">撤销</el-button></div>
+        </article>
+      </div>
       <div class="hint">撤销只对新请求生效：已经下载的字节无法收回。</div>
     </el-drawer>
   </div>
@@ -307,7 +340,10 @@ async function revoke(share) {
 }
 .id {
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
+.member-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.member-heading .el-tag { flex: none; }
 .link-box {
   margin-top: 8px;
   display: flex;
@@ -318,5 +354,11 @@ async function revoke(share) {
   font-size: 12px;
   word-break: break-all;
   flex: 1;
+}
+@media (max-width: 760px) {
+  .space-select { width: 100%; }
+  .toolbar-row > .el-button { min-height: 42px; }
+  .link-box { align-items: stretch; flex-direction: column; }
+  .page :deep(.el-drawer__body) { padding: 16px; }
 }
 </style>

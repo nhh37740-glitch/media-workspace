@@ -170,6 +170,13 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
 
 <template>
   <div class="page">
+    <div class="page-intro">
+      <div>
+        <p class="page-eyebrow">LIBRARY / 素材管理</p>
+        <h1 class="page-title">素材库</h1>
+        <p class="page-description">集中上传、查找和管理团队影音素材。</p>
+      </div>
+    </div>
     <el-card class="toolbar">
       <div class="toolbar-row">
         <el-select
@@ -217,7 +224,7 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
           </div>
         </template>
 
-        <el-table :data="page.items" size="default">
+        <el-table :data="page.items" size="default" class="desktop-table">
           <el-table-column label="封面" width="120">
             <template #default="{ row }">
               <img
@@ -272,6 +279,26 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
             </template>
           </el-table-column>
         </el-table>
+
+        <div class="mobile-list" aria-label="素材列表">
+          <el-empty v-if="!page.items.length" description="这个空间还没有素材" />
+          <article v-for="row in page.items" :key="row.mediaId" class="mobile-item media-item">
+            <img v-if="row.status === 'READY'" :src="media.posterUrl(row.mediaId)" class="poster mobile-poster" alt="" />
+            <div v-else class="poster placeholder mobile-poster">{{ row.status === 'PROCESSING' ? '处理中' : '无封面' }}</div>
+            <div class="mobile-media-info">
+              <h3 class="mobile-item-title">{{ row.title }}</h3>
+              <el-tag :type="describeMediaState(row.status).type" size="small">{{ describeMediaState(row.status).label }}</el-tag>
+              <div class="mobile-item-meta">{{ formatInstant(row.createdAt) }}</div>
+              <div class="mobile-item-meta">{{ formatDuration(row.durationMs) }} · {{ row.width && row.height ? `${row.width}×${row.height}` : '分辨率待生成' }}</div>
+            </div>
+            <div class="mobile-item-actions">
+              <el-button type="primary" plain :disabled="row.status !== 'READY'" @click="play(row)">播放</el-button>
+              <el-button v-if="row.taskId" @click="openTask(row)">任务详情</el-button>
+              <el-button @click="startRename(row)">重命名</el-button>
+              <el-button type="danger" plain @click="remove(row)">删除</el-button>
+            </div>
+          </article>
+        </div>
 
         <el-pagination
           v-if="page.total > page.pageSize"
@@ -347,5 +374,13 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
 .pager {
   margin-top: 12px;
   justify-content: flex-end;
+}
+.media-item { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
+.mobile-media-info { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.mobile-poster { width: 96px; height: 72px; border-radius: 8px; }
+.media-item .mobile-item-actions { grid-column: 1 / -1; margin-top: 0; }
+@media (max-width: 420px) {
+  .media-item { grid-template-columns: 80px minmax(0, 1fr); }
+  .mobile-poster { width: 80px; height: 64px; }
 }
 </style>
