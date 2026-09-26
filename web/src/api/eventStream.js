@@ -25,6 +25,7 @@ function createFrameParser() {
         buffer = buffer.slice(separator + 2)
         const frame = { id: null, event: 'message', data: '' }
         const dataLines = []
+        let hasEventField = false
         for (const line of raw.split('\n')) {
           if (line.startsWith(':')) {
             continue // a comment, used as a heartbeat
@@ -32,12 +33,21 @@ function createFrameParser() {
           const colon = line.indexOf(':')
           const field = colon === -1 ? line : line.slice(0, colon)
           const value = colon === -1 ? '' : line.slice(colon + 1).replace(/^ /, '')
-          if (field === 'id') frame.id = value
-          else if (field === 'event') frame.event = value
-          else if (field === 'data') dataLines.push(value)
+          if (field === 'id') {
+            frame.id = value
+            hasEventField = true
+          } else if (field === 'event') {
+            frame.event = value
+            hasEventField = true
+          } else if (field === 'data') {
+            dataLines.push(value)
+            hasEventField = true
+          }
         }
         frame.data = dataLines.join('\n')
-        frames.push(frame)
+        if (hasEventField) {
+          frames.push(frame)
+        }
         separator = buffer.indexOf('\n\n')
       }
       return frames
@@ -53,7 +63,7 @@ function createFrameParser() {
  * @param {(state: {status: 'open'|'closed'|'error', httpStatus?: number}) => void} onState
  * @returns {{close: () => void}}
  */
-export function openEventStream(url, onFrame, onState) {
+export function openEventStream(url, onFrame, onState = () => {}) {
   const controller = new AbortController()
   let closed = false
 

@@ -145,7 +145,9 @@ export const media = {
     if (q) {
       params.set('q', q)
     }
-    return request('GET', `/spaces/${spaceId}/media?${params}`)
+    // URLSearchParams uses '+' for spaces. Keep the URL's encoding explicit so callers and
+    // diagnostics see the same percent-encoded form as encodeURIComponent.
+    return request('GET', `/spaces/${spaceId}/media?${params.toString().replace(/\+/g, '%20')}`)
   },
   detail: (mediaId) => request('GET', `/media/${mediaId}`),
   rename: (mediaId, title, version) =>
