@@ -1,8 +1,7 @@
 """Single-module change gate. Run against a real Git commit range; read-only.
 
 Copied from the plan package (计划书/scripts/check_change_scope.py) so Jenkins can run it from the
-repository. The only addition is CLAUDE.md, which belongs to the engineering module the same way
-README.md does. The rules and the ownership table are otherwise unchanged.
+repository. Repository-specific build-delivery records are assigned explicitly below.
 """
 import argparse
 import json
@@ -20,6 +19,8 @@ BUILD_ROOT_FILES = {
     "gradle.properties", "gradlew", "gradlew.bat", "Jenkinsfile", ".gitignore",
     ".gitattributes", "README.md", "CLAUDE.md",
 }
+# The shared test matrix is delivery evidence; keep its ownership path-specific.
+BUILD_DELIVERY_DOCS = {"docs/test-matrix.md"}
 
 
 def owner(path):
@@ -33,7 +34,8 @@ def owner(path):
         return parts[0]
     if parts[0] == "contracts":
         return "media-contracts"
-    if parts[0] in {"scripts", "deploy", "gradle"} or path in BUILD_ROOT_FILES:
+    if (parts[0] in {"scripts", "deploy", "gradle"}
+            or path in BUILD_ROOT_FILES or path in BUILD_DELIVERY_DOCS):
         return "build-delivery"
     if parts[:2] == ("tests", "e2e"):
         return "build-delivery"

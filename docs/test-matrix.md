@@ -102,24 +102,28 @@
 8. **DATA-04** 备份恢复演练。
 9. **LOAD-02** 两 Worker 与单 Worker 的吞吐对比。
 10. **ACL-03** viewer 已开 SSE 后被移出成员：实现上每次轮询都重查成员资格，无自动化测试。
-11. **MOD-02 / MOD-03 的 Jenkins 执行形式**：门禁脚本本身可用且有单元测试
-    （计划书 `scripts/test_change_scope.py` 的 8 项），但没有通过 Jenkins 流水线执行过。
-12. **CI-01 ~ CI-04**：流水线未实际运行，见下节。
+11. **MOD-02 / MOD-03 的 Jenkins 拒绝场景**：门禁脚本本身可用且有单元测试
+    （计划书 `scripts/test_change_scope.py` 的 8 项）。Jenkins build #4 的 ScopeGate 已通过，
+    但跨模块、超文件数或根依赖修改的拒绝场景尚未通过 Jenkins 执行。
+12. **CI-01 ~ CI-04 的完整验收场景**：状态与已执行阶段见下节。
 
-## 六、Jenkins 流水线：未执行
+## 六、Jenkins 流水线
 
-Jenkins 2.568.3 已安装并运行过（控制器绑定回环、0 执行器、Agent 节点已定义），
-`Jenkinsfile` 与 `deploy/jenkins/` 下的初始化脚本、systemd 单元都已提交。但：
+Jenkins 2.568.3 已安装并运行。build #4 在 commit `a60637a` 上完成 Checkout 与
+ScopeGate，随后在 Validate 阶段执行 `python3 scripts/validate-contracts.py` 失败：
+`ERROR: acceptance.feature: tag CI-02 has no case in the matrix document`。构建结果为
+FAILURE（证据：`/opt/jenkins/jobs/media-workspace/builds/4/build.xml` 与该构建日志）。
+build #1–#3 因其他历史原因失败。build #4 未进入 Backend、Frontend、Integration、Package
+或部署阶段；修复后仍需由 Jenkins 真实重跑。
 
-- 管理员凭据认证始终失败（`api/json` 返回 401），已尝试删除 `users/` 与 `config.xml` 后重启，
-  账号与 realm 仍被重现，根因未确定；
-- 因此插件无法通过 CLI 安装，`workflow-aggregator` 缺失，流水线无法执行；
-- **没有跑过任何一次 Jenkins 构建**，CI-01 ~ CI-04 全部标 NOT_RUN。
+| 用例 | Jenkins 验收断言 | 状态 | 当前证据 |
+|---|---|---|---|
+| CI-01 正常提交构建 | commit 与制品 manifest 一致、SHA 正确、测试数大于 0 | NOT_RUN | build #4 到 Validate 即失败，未产出待核验制品 |
+| CI-02 失败测试阻止发布 | 注入失败的集成测试或前端构建失败；流水线失败、归档失败报告、不部署且无新成功发布标记 | NOT_RUN | build #4 是契约矩阵校验失败，未执行故障注入与后续断言 |
+| CI-03 重启演示部署后冒烟 | 登录、上传、处理、播放及健康检查通过 | NOT_RUN | 独立冒烟已有记录，Jenkins 部署与冒烟阶段未运行 |
+| CI-04 新版本部署健康失败 | 保留失败证据；schema 兼容时恢复上一制品并验证 | NOT_RUN | Jenkins 未执行此故障场景 |
 
-Jenkinsfile 中各阶段的命令与本地完全一致（`./gradlew clean check bootJar jar`、
-`npm ci && npm test -- --run && npm run build`、`bash scripts/run-integration-tests.sh`、
-`bash scripts/build-release.sh`），这些命令已在本机实际执行并通过，但**由 Jenkins 驱动的执行没有发生**。
-两者不能互相替代，这一条在最终报告里保持未完成。
+本地构建、集成测试和冒烟的既有记录不能替代上述 Jenkins 验收断言。
 
 ## 七、与 05 号规范的差异
 
