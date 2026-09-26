@@ -91,8 +91,12 @@ start_one() {
   fi
 
   mkdir -p "$RUN_DIR" "$LOG_DIR/$name"
+  # Pipeline cleanup identifies descendants by JENKINS_NODE_COOKIE; keep that build cookie out of
+  # the long-lived JVM. BUILD_ID covers the older Jenkins process-tree marker as well. Limit both
+  # overrides to this launch so ordinary build children remain under Jenkins cleanup.
   # shellcheck disable=SC2046
-  nohup "$JAVA_HOME/bin/java" $(grep -v '^#' "$opts" | grep -v '^$' | tr '\n' ' ') \
+  JENKINS_NODE_COOKIE=dontKillMe BUILD_ID=dontKillMe \
+    nohup "$JAVA_HOME/bin/java" $(grep -v '^#' "$opts" | grep -v '^$' | tr '\n' ' ') \
       -jar "$jar" >> "$LOG_DIR/$name/console.log" 2>&1 &
   local pid=$!
   printf '%s' "$pid" > "$(pid_file "$name")"
