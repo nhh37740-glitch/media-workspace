@@ -17,7 +17,7 @@ node_modules/
 
 # Real media and runtime data: generated at run time, never committed.
 var/
-storage/
+/storage/
 runtime/
 *.mp4
 *.mov
