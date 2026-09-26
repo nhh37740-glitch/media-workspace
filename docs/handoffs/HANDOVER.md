@@ -18,6 +18,49 @@
 **X: 盘不稳定，本次会话中消失过两次，每次约 40 秒后自行恢复。** 消失期间仓库与私钥都不可访问。
 服务器副本可作备份，但服务器上可能缺少最近一次本机提交。
 
+### 1.1 远程访问方法
+
+主机：`43.153.176.182`，用户 `ubuntu`，密钥认证。在 Windows 本机的 Bash 里：
+
+```bash
+# 直接连接（会经常失败，见下）
+ssh -i "X:\javaproject\codex.pem" ubuntu@43.153.176.182
+
+# 推荐：封装脚本，只重试连接失败，命令本身失败会立即返回
+bash "X:/javaproject/ssh-mw.sh" 'uptime'
+bash "X:/javaproject/ssh-mw.sh" <<'EOF'
+多行脚本直接写在这里
+EOF
+
+# 同步本地源码到服务器（tar over ssh，含 .git；排除构建产物与凭据）
+bash "X:/javaproject/sync-media-workspace.sh" push
+bash "X:/javaproject/sync-media-workspace.sh" pull <服务器上的相对路径>
+```
+
+**为什么必须用封装脚本**：这台主机的 sshd 大约五次里只成功一次，其余在握手中返回
+`Connection closed/reset by ... port 22`，而机器本身负载很低（实测 load 0.19）。
+`ssh-mw.sh` 只对这种握手失败重试，命令真正执行后失败则立即报错，不会重复执行。
+
+**主机指纹**：ED25519 `SHA256:sTpylg4cljm9w2gKt6Wlw70mswZp5BOYEHuScuX5P/Y`，
+也记在仓库 `docs/ssh-host-fingerprint.txt`。**与这个值不一致就停止连接并核对**，
+不要用 `StrictHostKeyChecking=no` 绕过。
+
+**回环服务怎么访问**：API 8080、Worker 8090、MySQL 3306、Kafka 9092、Jenkins 8081
+都只监听 127.0.0.1，从本机访问需要隧道，例如 Jenkins：
+
+```bash
+ssh -i "X:\javaproject\codex.pem" -L 8081:127.0.0.1:8081 ubuntu@43.153.176.182
+# 然后浏览器打开 http://127.0.0.1:8081
+```
+
+公网只有一个入口：`http://43.153.176.182:8088`（Nginx）。注意云厂商安全组是否放行 8088；
+如果没放行，上面同样可以用 `-L 8088:127.0.0.1:8088` 隧道访问。
+
+**凭据在哪**：数据库密码、演示账号密码、Jenkins 管理员密码全在服务器的
+`/opt/media-workspace/config/media-workspace.env`（0640，属主 root:ubuntu，`ubuntu` 可读）。
+**仓库里没有任何凭据**，私钥 `codex.pem` 也只在 `X:\javaproject\` 下，两者都不进版本库、不进日志。
+在服务器上读取：`sudo grep '^DB_' /opt/media-workspace/config/media-workspace.env`。
+
 ---
 
 ## 2. 服务器现状（离开时的状态）
