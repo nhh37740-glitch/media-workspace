@@ -155,8 +155,8 @@ case "$ACTION" in
     while read -r name; do stop_one "$name"; done < <(targets)
     ;;
   restart)
-    "$0" stop "$TARGET"
-    "$0" start "$TARGET" "$RELEASE_ARG"
+    bash "$0" stop "$TARGET"
+    bash "$0" start "$TARGET" "$RELEASE_ARG"
     ;;
   status)
     while read -r name; do status_one "$name"; done < <(targets)

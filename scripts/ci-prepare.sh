@@ -19,7 +19,7 @@ log() { printf '[ci-prepare] %s\n' "$*"; }
 
 log "stopping the demonstration services"
 DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" \
-  "$REPO_ROOT/scripts/service.sh" stop all || true
+  bash "$REPO_ROOT/scripts/service.sh" stop all
 
 log "checking the build dependencies"
 if ! systemctl is-active --quiet mysql; then

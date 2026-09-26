@@ -35,14 +35,14 @@ fail() { printf '[deploy] ERROR: %s\n' "$*" >&2; exit 1; }
 # unusable. The window is bounded: everything after this point either succeeds and restarts the
 # services, or the script exits and the operator restarts them explicitly.
 log "stopping the services so the build has the machine to itself"
-DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" "$REPO_ROOT/scripts/service.sh" stop all || true
+DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" bash "$REPO_ROOT/scripts/service.sh" stop all
 
 log "building the release"
 # Stale directories from earlier runs are removed first: selecting "the last one" by name would
 # pick an older release whose version string happens to sort higher, which is how a deploy ends up
 # publishing yesterday's build under today's name.
 rm -rf "$REPO_ROOT/build/release"
-OUT_DIR="$REPO_ROOT/build/release" "$REPO_ROOT/scripts/build-release.sh"
+OUT_DIR="$REPO_ROOT/build/release" bash "$REPO_ROOT/scripts/build-release.sh"
 
 release_dir="$(ls -1dt "$REPO_ROOT"/build/release/*/ 2>/dev/null | head -1)"
 [ -n "$release_dir" ] || fail "no release directory was produced"
@@ -63,7 +63,7 @@ fi
 
 log "applying migrations with a process that is not a service"
 DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" \
-  "$REPO_ROOT/scripts/bootstrap-users.sh" "$DEPLOY_ROOT/releases/$release_name"
+  bash "$REPO_ROOT/scripts/bootstrap-users.sh" "$DEPLOY_ROOT/releases/$release_name"
 
 # `current` must be a symlink. If it is a real directory, something created it by hand and a
 # rename into it would either fail or, worse, silently nest the new release inside it. This refuses
@@ -79,7 +79,7 @@ mv -Tf "$DEPLOY_ROOT/current.tmp" "$DEPLOY_ROOT/current"
 
 log "restarting the services"
 DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" \
-  "$REPO_ROOT/scripts/service.sh" restart all "$DEPLOY_ROOT/releases/$release_name"
+  bash "$REPO_ROOT/scripts/service.sh" restart all "$DEPLOY_ROOT/releases/$release_name"
 
 log "waiting for the API to become ready"
 ready=0
@@ -97,14 +97,14 @@ if [ "$ready" != "1" ]; then
     log "rolling the symlink back to $(basename "$previous")"
     ln -sfn "$previous" "$DEPLOY_ROOT/current.tmp"
     mv -Tf "$DEPLOY_ROOT/current.tmp" "$DEPLOY_ROOT/current"
-    DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" "$REPO_ROOT/scripts/service.sh" restart all "$previous" || true
+    DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" bash "$REPO_ROOT/scripts/service.sh" restart all "$previous" || true
   fi
   fail "deployment failed and was rolled back"
 fi
 log "the API reports ready"
 
 log "running the smoke test"
-if DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" "$REPO_ROOT/scripts/smoke-test.sh"; then
+if DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" bash "$REPO_ROOT/scripts/smoke-test.sh"; then
   log "deployment of $release_name succeeded"
 else
   log "the smoke test failed"
@@ -114,7 +114,7 @@ else
     log "of user data is not attempted"
     ln -sfn "$previous" "$DEPLOY_ROOT/current.tmp"
     mv -Tf "$DEPLOY_ROOT/current.tmp" "$DEPLOY_ROOT/current"
-    DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" "$REPO_ROOT/scripts/service.sh" restart all "$previous" || true
+    DEPLOY_ROOT="$DEPLOY_ROOT" MW_ENV_FILE="$ENV_FILE" bash "$REPO_ROOT/scripts/service.sh" restart all "$previous" || true
   fi
   fail "the deployment did not pass its smoke test"
 fi
