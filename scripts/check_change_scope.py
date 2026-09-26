@@ -17,7 +17,7 @@ MODULES = {
 BUILD_ROOT_FILES = {
     "settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts",
     "gradle.properties", "gradlew", "gradlew.bat", "Jenkinsfile", ".gitignore",
-    ".gitattributes", "README.md", "CLAUDE.md",
+    ".gitattributes", "README.md", "CLAUDE.md", "agent.md",
 }
 # The shared test matrix is delivery evidence; keep its ownership path-specific.
 BUILD_DELIVERY_DOCS = {"docs/test-matrix.md"}

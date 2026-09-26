@@ -6,6 +6,16 @@ from check_change_scope import check_paths, owner
 
 
 class ChangeScopeTest(unittest.TestCase):
+    def test_root_agent_constraints_belong_only_to_build_delivery(self):
+        paths = ["agent.md", "scripts/check_change_scope.py", "scripts/test_change_scope.py"]
+        self.assertEqual("build-delivery", owner("agent.md"))
+        self.assertEqual([], check_paths(paths, "build-delivery"))
+        self.assertIn("Outside module web: agent.md", check_paths(["agent.md"], "web"))
+        self.assertIsNone(owner("docs/agent.md"))
+        self.assertIsNone(owner("AGENT.md"))
+        self.assertTrue(check_paths(paths + [f"scripts/extra-{i}.py" for i in range(6)],
+                                    "build-delivery"))
+
     def test_build_delivery_can_update_ci_matrix_with_its_gate_and_tests(self):
         paths = [
             "docs/test-matrix.md",

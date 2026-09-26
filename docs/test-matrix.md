@@ -3,7 +3,7 @@
 本文件是 05 号规范用例矩阵在实现仓库中的对应记录。**状态只有两种来源：实际运行得到的报告，
 或尚未运行。** 没有运行过的用例一律标 NOT_RUN，不因为"相关代码已经写好"而标 PASS。
 
-证据收集方法见 `docs/runbook.md` 第 4 节；测试命令与结果见本文件末尾的"运行记录"。
+证据收集方法见 `docs/runbook.md` 第 4 节；Jenkins 结果见第六节，本地运行记录见第八节。
 
 ## 状态说明
 
@@ -103,27 +103,31 @@
 9. **LOAD-02** 两 Worker 与单 Worker 的吞吐对比。
 10. **ACL-03** viewer 已开 SSE 后被移出成员：实现上每次轮询都重查成员资格，无自动化测试。
 11. **MOD-02 / MOD-03 的 Jenkins 拒绝场景**：门禁脚本本身可用且有单元测试
-    （计划书 `scripts/test_change_scope.py` 的 8 项）。Jenkins build #4 的 ScopeGate 已通过，
+    （计划书 `scripts/test_change_scope.py` 的 8 项）。Jenkins build #9 的 ScopeGate 已通过，
     但跨模块、超文件数或根依赖修改的拒绝场景尚未通过 Jenkins 执行。
-12. **CI-01 ~ CI-04 的完整验收场景**：状态与已执行阶段见下节。
+12. **CI-02 / CI-04 的故障注入场景**：尚未执行；CI-01 / CI-03 的通过证据见下节。
 
 ## 六、Jenkins 流水线
 
-Jenkins 2.568.3 已安装并运行。build #4 在 commit `a60637a` 上完成 Checkout 与
-ScopeGate，随后在 Validate 阶段执行 `python3 scripts/validate-contracts.py` 失败：
-`ERROR: acceptance.feature: tag CI-02 has no case in the matrix document`。构建结果为
-FAILURE（证据：`/opt/jenkins/jobs/media-workspace/builds/4/build.xml` 与该构建日志）。
-build #1–#3 因其他历史原因失败。build #4 未进入 Backend、Frontend、Integration、Package
-或部署阶段；修复后仍需由 Jenkins 真实重跑。
+Jenkins build #9 的 `build.xml` 记录 SUCCESS，HEAD 为
+`629a71f1a720b52b7d2956d07cd600843c16203f`。ScopeGate、Validate、Backend、
+Frontend、Integration、Package、DeployDemo 和独立 Smoke 阶段均通过。Backend 的
+`count-test-results.py` 报告 12 个 XML、93 个测试、0 failures/errors/skips；Frontend
+34/34 测试通过，Vite 生产构建成功。Integration 构建成功。
+
+发布目录为 `/opt/media-workspace/releases/0.1.0-629a71f`；manifest.commit 等于上述
+完整 SHA，`sha256sum --check --quiet SHA256SUMS` 通过。DeployDemo 内和独立 Smoke
+阶段各完成 8 步，均输出 `SMOKE TEST PASSED`。流水线结束后 API 与 Worker 仍在运行，
+API readiness 返回 200。
 
 | 用例 | Jenkins 验收断言 | 状态 | 当前证据 |
 |---|---|---|---|
-| CI-01 正常提交构建 | commit 与制品 manifest 一致、SHA 正确、测试数大于 0 | NOT_RUN | build #4 到 Validate 即失败，未产出待核验制品 |
-| CI-02 失败测试阻止发布 | 注入失败的集成测试或前端构建失败；流水线失败、归档失败报告、不部署且无新成功发布标记 | NOT_RUN | build #4 是契约矩阵校验失败，未执行故障注入与后续断言 |
-| CI-03 重启演示部署后冒烟 | 登录、上传、处理、播放及健康检查通过 | NOT_RUN | 独立冒烟已有记录，Jenkins 部署与冒烟阶段未运行 |
-| CI-04 新版本部署健康失败 | 保留失败证据；schema 兼容时恢复上一制品并验证 | NOT_RUN | Jenkins 未执行此故障场景 |
+| CI-01 正常提交构建 | commit 与制品 manifest 一致、SHA 正确、测试数大于 0 | PASS | build #9 SUCCESS；12 个 XML 共 93 个后端测试，前端 34/34；Integration、Package 通过；manifest.commit 与 HEAD 一致，SHA256SUMS 校验通过 |
+| CI-02 失败测试阻止发布 | 注入失败的集成测试或前端构建失败；流水线失败、归档失败报告、不部署且无新成功发布标记 | NOT_RUN | build #9 未注入失败，未验证这些失败路径断言 |
+| CI-03 重启演示部署后冒烟 | 登录、上传、处理、播放及健康检查通过 | PASS | build #9 DeployDemo 和独立 Smoke 阶段均完成 8 步并通过；构建结束后 API/Worker 运行，readiness 200 |
+| CI-04 新版本部署健康失败 | 保留失败证据；schema 兼容时恢复上一制品并验证 | NOT_RUN | 未执行部署健康失败与回退验证 |
 
-本地构建、集成测试和冒烟的既有记录不能替代上述 Jenkins 验收断言。
+以上 PASS 只覆盖表中已实际验证的断言；其他未运行用例仍按第五节记录为 NOT_RUN。
 
 ## 七、与 05 号规范的差异
 
@@ -134,7 +138,7 @@ build #1–#3 因其他历史原因失败。build #4 未进入 Backend、Fronten
 
 ## 八、运行记录
 
-以下是实际执行过的命令与结果（2026-09-25，commit 见各节末）：
+以下是 2026-09-25 的本地运行记录，与第六节 Jenkins build #9 的运行记录分开：
 
 ```
 ./gradlew clean check bootJar jar
