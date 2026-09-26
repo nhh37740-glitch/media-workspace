@@ -5,9 +5,10 @@
 # separate JVM options from the controller, as the delivery contract requires even when both run on
 # one host.
 #
-# The agent runs the toolchain the build needs - JDK 17 for the application and Node for the front
-# end - and is told where the runtime environment file is, so the integration stage can reach MySQL
-# and Kafka without any credential appearing in a command line.
+# The agent itself runs on JDK 21, which is required by Jenkins 2.568.3. The build exports JDK 17
+# through the node environment for the application toolchain, and Node for the front end; the
+# runtime environment file lets the integration stage reach MySQL and Kafka without any credential
+# appearing in a command line.
 
 [Unit]
 Description=Jenkins inbound agent (media-workspace)
@@ -20,7 +21,7 @@ Type=simple
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/opt/jenkins-agent
-Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 EnvironmentFile=/opt/media-workspace/config/media-workspace.env
 Environment=MW_ENV_FILE=/opt/media-workspace/config/media-workspace.env
 Environment=DEPLOY_ROOT=/opt/media-workspace
@@ -36,6 +37,7 @@ Environment=DEPLOY_ROOT=/opt/media-workspace
 # monitor marks offline never accepts a build. /opt/jenkins-agent/tmp is on the root filesystem.
 ExecStart=/bin/bash -c 'exec "$JAVA_HOME/bin/java" -Xms64m -Xmx256m -XX:+UseSerialGC \
   -Dfile.encoding=UTF-8 -Duser.timezone=UTC \
+  -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true \
   -Djava.io.tmpdir=/opt/jenkins-agent/tmp \
   -jar /opt/jenkins-agent/agent.jar \
   -url http://127.0.0.1:8081/ \

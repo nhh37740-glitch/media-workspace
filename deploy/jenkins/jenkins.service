@@ -36,7 +36,10 @@ Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 # "Disk space is below threshold of 1.00 GiB. Only 896.79 MiB out of 981.25 MiB left on /tmp", and
 # the same monitor would take the agent offline as well. $JENKINS_HOME/tmp is on the 59 GiB root
 # filesystem. The directory is created by scripts/setup-jenkins.sh.
-Environment=JAVA_OPTS=-Xms96m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC -Djava.io.tmpdir=/opt/jenkins/tmp
+# This job intentionally checks out the trusted local repository at /home/ubuntu/media-workspace's source
+# checkout. GitSCM rejects local remotes by default; enable the explicit local-checkout exception in
+# the controller too because SCM configuration and checkout orchestration can run in either JVM.
+Environment="JAVA_OPTS=-Xms96m -Xmx320m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -Dfile.encoding=UTF-8 -Duser.timezone=UTC -Djava.io.tmpdir=/opt/jenkins/tmp -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true"
 # The listen address and port are arguments rather than CLI options on the unit, so the bind is
 # visible next to the reason it is loopback-only.
 ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java $JAVA_OPTS -jar /opt/jenkins/jenkins.war --httpListenAddress=127.0.0.1 --httpPort=8081 --prefix=

@@ -78,7 +78,7 @@ if [ "$SKIP_TESTS" != "1" ]; then
   GRADLE_TASKS="clean check bootJar jar"
 fi
 log "running ./gradlew $GRADLE_TASKS"
-./gradlew --no-daemon $GRADLE_TASKS
+bash ./gradlew --no-daemon $GRADLE_TASKS
 
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"/{apps,libs,web,config,scripts}

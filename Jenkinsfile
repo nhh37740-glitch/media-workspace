@@ -77,7 +77,7 @@ pipeline {
 
         stage('Validate') {
             steps {
-                sh './gradlew --no-daemon architectureCheck versionLockCheck'
+                sh 'bash ./gradlew --no-daemon architectureCheck versionLockCheck'
                 sh 'python3 scripts/validate-contracts.py'
             }
         }
@@ -85,7 +85,7 @@ pipeline {
         stage('Backend') {
             steps {
                 // The test count is asserted, not assumed: a build that ran no tests is not a pass.
-                sh './gradlew --no-daemon clean check bootJar jar'
+                sh 'bash ./gradlew --no-daemon clean check bootJar jar'
                 sh 'python3 scripts/count-test-results.py --require-nonzero'
             }
             post {

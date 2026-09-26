@@ -33,10 +33,13 @@ require_root
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
 
-# The administrator password is generated once and kept in the environment file with the other
-# secrets. It is never echoed, never passed on a command line and never committed.
-if ! grep -qE '^JENKINS_ADMIN_PASSWORD=' "$ENV_FILE"; then
+# The administrator identity is generated once and kept in the environment file with the other
+# secrets. Check both keys independently: older environment files may already contain a password
+# but not the user key, which would make the CLI authenticate as an empty user and return 401.
+if ! grep -qE '^JENKINS_ADMIN_USER=[^[:space:]]+$' "$ENV_FILE"; then
   printf 'JENKINS_ADMIN_USER=admin\n' >> "$ENV_FILE"
+fi
+if ! grep -qE '^JENKINS_ADMIN_PASSWORD=[^[:space:]]+$' "$ENV_FILE"; then
   printf 'JENKINS_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 20)" >> "$ENV_FILE"
   chmod 0640 "$ENV_FILE"
   chgrp ubuntu "$ENV_FILE" 2>/dev/null || true
@@ -44,7 +47,17 @@ if ! grep -qE '^JENKINS_ADMIN_PASSWORD=' "$ENV_FILE"; then
 fi
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
+: "${JENKINS_ADMIN_USER:?JENKINS_ADMIN_USER must be present in the environment file}"
 : "${JENKINS_ADMIN_PASSWORD:?JENKINS_ADMIN_PASSWORD must be present in the environment file}"
+
+# Jenkins CLI accepts an @file credential source. The file must contain only the raw
+# user:password pair; curl's `user = "..."` configuration syntax is not valid here. Keeping the
+# secret in a mode-600 temporary file avoids exposing it in the process list or build log.
+JENKINS_CLI_AUTH_FILE="$(mktemp)"
+chmod 0600 "$JENKINS_CLI_AUTH_FILE"
+printf '%s:%s\n' "$JENKINS_ADMIN_USER" "$JENKINS_ADMIN_PASSWORD" > "$JENKINS_CLI_AUTH_FILE"
+cleanup() { rm -f "$JENKINS_CLI_AUTH_FILE"; }
+trap cleanup EXIT
 
 install_controller() {
   log "installing the controller"
@@ -109,40 +122,47 @@ install_plugins() {
   plugins="$(grep -vE '^\s*(#|$)' "$REPO_ROOT/deploy/jenkins/plugins.txt" | tr '\n' ' ')"
 
   set +e
-  java -jar "$cli_jar" -s "$JENKINS_URL" -http -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" \
+  java -jar "$cli_jar" -s "$JENKINS_URL" -http -auth "@$JENKINS_CLI_AUTH_FILE" \
     install-plugin $plugins -deploy 2>&1 | tail -5
   local status=$?
   set -e
   rm -f "$cli_jar"
   if [ "$status" -ne 0 ]; then
-    log "the plugin command reported a problem; checking what is installed"
+    fail "the plugin installation command failed"
   fi
 }
 
 wait_for_plugins() {
   log "waiting for plugins to finish loading"
   local cli_jar=/tmp/jenkins-cli.jar
-  curl -sSf -o "$cli_jar" "$JENKINS_URL/jnlpJars/jenkins-cli.jar" 2>/dev/null || return 0
+  curl -sSf -o "$cli_jar" "$JENKINS_URL/jnlpJars/jenkins-cli.jar" \
+    || fail "could not fetch the CLI jar while checking plugins"
   for _ in $(seq 1 60); do
     local output
     output="$(java -jar "$cli_jar" -s "$JENKINS_URL" -http \
-      -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" list-plugins 2>/dev/null || true)"
-    if printf '%s' "$output" | grep -q '^workflow-aggregator'; then
-      log "the pipeline plugin is present"
+      -auth "@$JENKINS_CLI_AUTH_FILE" list-plugins 2>/dev/null || true)"
+    local missing=0 plugin
+    for plugin in $(grep -vE '^\s*(#|$)' "$REPO_ROOT/deploy/jenkins/plugins.txt"); do
+      if ! printf '%s' "$output" | grep -qE "^${plugin}([[:space:]]|$)"; then
+        missing=1
+        break
+      fi
+    done
+    if [ "$missing" -eq 0 ]; then
+      log "all required pipeline plugins are present"
       rm -f "$cli_jar"
       return 0
     fi
     sleep 5
   done
   rm -f "$cli_jar"
-  log "the pipeline plugin did not appear; a restart may be needed"
+  fail "workflow-aggregator did not become available"
 }
 
 create_job() {
   log "creating the pipeline job"
   local cli_jar=/tmp/jenkins-cli.jar
   curl -sSf -o "$cli_jar" "$JENKINS_URL/jnlpJars/jenkins-cli.jar" || fail "could not fetch the CLI jar"
-  local auth="${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}"
 
   # The job definition is generated from the repository path, so the job always points at the
   # checkout this script was run from.
@@ -205,7 +225,7 @@ create_job() {
         <hudson.plugins.git.BranchSpec><name>*/main</name></hudson.plugins.git.BranchSpec>
       </branches>
       <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
-    </hudson.plugins.git.GitSCM>
+    </scm>
     <scriptPath>Jenkinsfile</scriptPath>
     <lightweight>false</lightweight>
   </definition>
@@ -214,10 +234,25 @@ create_job() {
 </flow-definition>
 XML
 
-  java -jar "$cli_jar" -s "$JENKINS_URL" -http -auth "$auth" \
-    create-job media-workspace < "$job_xml" 2>/dev/null \
-    || java -jar "$cli_jar" -s "$JENKINS_URL" -http -auth "$auth" \
-         update-job media-workspace < "$job_xml"
+  local create_output
+  if create_output="$(java -jar "$cli_jar" -s "$JENKINS_URL" -http \
+      -auth "@$JENKINS_CLI_AUTH_FILE" create-job media-workspace < "$job_xml" 2>&1)"; then
+    printf '%s\n' "$create_output"
+  else
+    local create_status=$?
+    # A failed create is only recoverable when the job already exists. Check that explicitly before
+    # trying update-job; otherwise the original create error is hidden by a misleading "No such job"
+    # from the fallback command.
+    if java -jar "$cli_jar" -s "$JENKINS_URL" -http \
+        -auth "@$JENKINS_CLI_AUTH_FILE" get-job media-workspace >/dev/null 2>&1; then
+      java -jar "$cli_jar" -s "$JENKINS_URL" -http \
+        -auth "@$JENKINS_CLI_AUTH_FILE" update-job media-workspace < "$job_xml"
+    else
+      printf '%s\n' "$create_output" >&2
+      rm -f "$cli_jar" "$job_xml"
+      fail "could not create the pipeline job (create-job exit ${create_status})"
+    fi
+  fi
   rm -f "$cli_jar" "$job_xml"
   log "the pipeline job 'media-workspace' exists"
 }
@@ -236,19 +271,21 @@ start_agent() {
   systemctl restart media-jenkins-agent
   for _ in $(seq 1 60); do
     local cli_jar=/tmp/jenkins-cli.jar
-    curl -sSf -o "$cli_jar" "$JENKINS_URL/jnlpJars/jenkins-cli.jar" 2>/dev/null || true
-    local output
-    output="$(java -jar "$cli_jar" -s "$JENKINS_URL" -http \
-      -auth "${JENKINS_ADMIN_USER}:${JENKINS_ADMIN_PASSWORD}" \
-      list-nodes 2>/dev/null || true)"
-    rm -f "$cli_jar"
-    if printf '%s' "$output" | grep -q 'online\|media-workspace-agent'; then
-      log "the agent is registered"
+    curl -sSf -o "$cli_jar" "$JENKINS_URL/jnlpJars/jenkins-cli.jar" \
+      || fail "could not fetch the CLI jar while checking the agent"
+    # wait-node-online is a core CLI command and returns success only after the Computer is online.
+    # A node name in get-node/list output only proves that its configuration exists, not that the
+    # WebSocket agent has connected and can accept a build.
+    if timeout 5s java -jar "$cli_jar" -s "$JENKINS_URL" -http \
+      -auth "@$JENKINS_CLI_AUTH_FILE" wait-node-online media-workspace-agent >/dev/null 2>&1; then
+      rm -f "$cli_jar"
+      log "the agent is online"
       return 0
     fi
+    rm -f "$cli_jar"
     sleep 3
   done
-  log "the agent did not report within the wait; check journalctl -u media-jenkins-agent"
+  fail "the agent did not report online; check journalctl -u media-jenkins-agent"
 }
 
 # The account no longer has to be deleted to be repaired. 01-security.groovy reconciles the stored

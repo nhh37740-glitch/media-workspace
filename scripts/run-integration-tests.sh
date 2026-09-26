@@ -36,4 +36,4 @@ echo "[integration] kafka ${MW_KAFKA_BOOTSTRAP}"
 echo "[integration] storage root ${MW_IT_STORAGE_ROOT}"
 
 cd "$REPO_ROOT"
-exec ./gradlew --no-daemon "$@" integrationTest
+exec bash ./gradlew --no-daemon "$@" integrationTest
