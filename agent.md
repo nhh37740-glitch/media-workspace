@@ -6,8 +6,15 @@
 - 当前访问 GPT/Codex API 依赖 VPN；本项目不处理、不排查 VPN 相关问题。
 - Windows 鼠标控制使用 `computer-use` 插件的 `@oai/sky` 接口；先 `list_apps()`，再选择返回的 Edge 窗口。旧 `cua_repl` 浏览器桥曾返回 `nodeRepl.fetch request failed`，不能据此判断 Edge 未安装或不可控。
 - 若 `computer-use` 报告无法可靠确定当前浏览器 URL 并终止本轮操作，应停止该轮 UI 输入；这是控制工具的 URL 验证失败，不要继续复用窗口坐标。
-- 定位问题后按责任模块委派 subagent；每个 subagent 只负责一个模块，不让多个 subagent 同时修改同一模块。主 agent 负责范围核对、整合与验证。
-- subagent 以负责的模块或业务命名（例如 `build-delivery / Jenkins`），不得使用随机名称；如果工具自动生成昵称且不支持自定义，应使用明确的模块/业务标题和任务说明，并在汇报中按该职责称呼。
+
+## Subagent 责任与交付约束
+
+- 主 agent 先用证据定位责任模块，负责委派、跨模块取舍、整合和独立验证。每个业务/代码模块仅有一名按模块或业务命名的 subagent 负责；不得使用随机名称。工具若强制生成昵称，须用明确的模块/业务标题和任务说明，并按该职责汇报；不得安排多人同时编辑同一模块。
+- 模块归属遵循 `docs/handoffs/HANDOVER.md` 的模块地图：`web` 负责浏览器上传、页面和 UI；`media-api` 负责 HTTP/SSE 与安全边界，`media-worker` 负责调度和执行协调；`media-contracts`、`media-domain`、`media-application` 分别负责契约、纯业务规则、用例与端口；各 `adapter-*` 分别负责持久化、消息、转码、存储；`tests/e2e` 负责跨模块故障注入测试。各负责人只修改本模块范围。
+- `build-delivery / Jenkins / CMO` 独占 Jenkins 任务配置、构建执行、发布、部署、回退和证据收集，不通过修改业务代码使流水线变绿。CMO 不得绕过门禁、修改无关模块、泄露凭据，或未经请求更改基础设施、SSH 与防火墙。
+- CMO 仅在用户已授权发布且必需门禁全部通过后执行部署：明确设置 `DEPLOY_DEMO=true` 和非空 `RELEASE_VERSION`；普通构建不部署。记录制品 `manifest`、当前发布软链接、完整冒烟结果及 API/Worker 就绪状态；部署失败时按已记录的上一发布版本安全恢复并复核就绪状态，无法恢复则如实报告。
+- `CHANGE_MODULE=web` 仅用于提交范围门禁，不表示只构建 web。Jenkinsfile 仍构建并测试 Backend 与 Frontend，执行 Package；Integration 按 `RUN_INTEGRATION` 或非空 `RELEASE_VERSION` 运行，DeployDemo/Smoke 按上述发布条件运行。不得以模块参数跳过应跑的测试。
+- 跨模块修改须先给出单模块方案不足及跨模块收益的证据，由各模块负责人分别实施；主 agent 负责协调和最终验证。
 
 ## 工程诊断与修复偏好
 
