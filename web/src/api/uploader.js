@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
 import { media, newIdempotencyKey, request, refreshCsrf } from './client'
 
 /**
@@ -14,22 +16,37 @@ import { media, newIdempotencyKey, request, refreshCsrf } from './client'
 
 const CHUNK_RETRIES = 3
 const RETRY_BASE_DELAY_MS = 500
+const HASH_SLICE_BYTES = 2 * 1024 * 1024
 
-/** SHA-256 of a file as lowercase hex, computed with the platform's own digest. */
+/** SHA-256 of a file as lowercase hex. */
 export async function sha256OfFile(file, onProgress) {
-  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const subtle = globalThis.crypto?.subtle
+  if (subtle?.digest) {
+    const digest = await subtle.digest('SHA-256', await file.arrayBuffer())
+    onProgress?.(100)
+    return bytesToHex(new Uint8Array(digest))
+  }
+
+  // Web Crypto is unavailable on ordinary HTTP origins. The incremental implementation reads
+  // bounded slices and produces the same SHA-256 bytes as the native digest.
+  const hash = sha256.create()
+  for (let offset = 0; offset < file.size; offset += HASH_SLICE_BYTES) {
+    const end = Math.min(offset + HASH_SLICE_BYTES, file.size)
+    hash.update(new Uint8Array(await file.slice(offset, end).arrayBuffer()))
+    onProgress?.(Math.round((end / file.size) * 99))
+  }
+  const digest = bytesToHex(hash.digest())
   onProgress?.(100)
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
+  return digest
 }
 
 /** SHA-256 of one chunk, used for the per-chunk header the server verifies. */
 async function sha256OfChunk(buffer) {
-  const digest = await crypto.subtle.digest('SHA-256', buffer)
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
+  const subtle = globalThis.crypto?.subtle
+  if (subtle?.digest) {
+    return bytesToHex(new Uint8Array(await subtle.digest('SHA-256', buffer)))
+  }
+  return bytesToHex(sha256(new Uint8Array(buffer)))
 }
 
 function delay(milliseconds) {
