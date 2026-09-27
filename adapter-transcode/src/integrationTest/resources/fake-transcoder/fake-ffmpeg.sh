@@ -11,6 +11,7 @@
 #   hang          never exit, and keep the pipes open
 #   flood         write far more stderr than the retention budget, then exit 0
 #   progress      emit a realistic -progress stream on stdout, then exit 0
+#   progress-long emit time hints for a ten-minute source, then exit 0
 #   exit-nonzero  exit 3 with a diagnostic on stderr
 #   half          write a partial output file and exit 1
 #   zero-no-file  exit 0 without creating any output
@@ -69,6 +70,17 @@ case "$MODE" in
       echo "frame=$((i * 25))"
       echo "progress=continue"
     done
+    echo "progress=end"
+    emit_output "$@"
+    exit 0
+    ;;
+  progress-long)
+    # Fill the retained stdout budget first; later progress must still reach the listener.
+    for i in $(seq 1 30000); do
+      echo "frame=$i"
+    done
+    echo "out_time_us=99000000"
+    echo "out_time_ms=300000000"
     echo "progress=end"
     emit_output "$@"
     exit 0

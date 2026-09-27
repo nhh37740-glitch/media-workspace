@@ -22,6 +22,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -198,6 +200,25 @@ class ProcessTranscoderIT {
         assertThat(highest.get())
                 .as("100 is reserved for the publish transaction, so a hint must stay below it")
                 .isLessThanOrEqualTo(99);
+    }
+
+    @Test
+    @DisplayName("PROC-03: long encode progress continues after stdout retention fills and end stays below 100%")
+    void scalesProgressBySourceDuration() throws IOException {
+        TranscodeSpec original = spec("progress-long");
+        TranscodeSpec longSource = new TranscodeSpec(original.input(), original.outputFile(),
+                original.posterFile(), original.preset(), 600_000, original.deadline(),
+                original.maxCpuThreads(), original.keepStandardErrorBytes());
+        List<Integer> reported = new ArrayList<>();
+
+        // The fake copies a short but valid MP4. It must fail the existing truncation check after
+        // streaming its progress, so a failed attempt never becomes a successful publication.
+        assertThatThrownBy(() -> withFake("progress-long", transcoder ->
+                transcoder.execute(longSource, reported::add, CancellationToken.none())))
+                .isInstanceOf(TranscodeException.class)
+                .extracting(e -> ((TranscodeException) e).errorCode())
+                .isEqualTo(TaskErrorCode.INVALID_MEDIA);
+        assertThat(reported).containsExactly(16, 50);
     }
 
     @Test

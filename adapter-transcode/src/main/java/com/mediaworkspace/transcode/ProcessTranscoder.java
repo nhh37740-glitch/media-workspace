@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -85,7 +86,8 @@ public class ProcessTranscoder implements Transcoder {
         ProcessRunner.Outcome outcome;
         try {
             outcome = ProcessRunner.run(argv, spec.deadline(), cancel,
-                    line -> reportProgress(line, progress), 256 * 1024, spec.keepStandardErrorBytes());
+                    line -> reportProgress(line, spec.sourceDurationMs(), progress),
+                    256 * 1024, spec.keepStandardErrorBytes());
         } catch (IOException e) {
             throw new TranscodeException(TaskErrorCode.PROCESS_START_FAILED,
                     "the encoder could not be started: " + e.getMessage(), e);
@@ -189,11 +191,12 @@ public class ProcessTranscoder implements Transcoder {
     /**
      * Reads {@code -progress} output.
      *
-     * <p>The encoder writes {@code key=value} lines; {@code out_time_us} and {@code frame} are
-     * converted to a percentage against the known source duration. Anything unparsable is ignored:
-     * a progress line is a hint, and failing the encode over one would be the wrong trade.
+     * <p>The encoder writes {@code key=value} lines. Its output timestamp is compared with the
+     * probed source duration; without a positive duration there is no meaningful percentage.
+     * Anything unparsable is ignored: a progress line is a hint, and failing the encode over one
+     * would be the wrong trade.
      */
-    static void reportProgress(String line, ProgressListener progress) {
+    static void reportProgress(String line, long sourceDurationMs, ProgressListener progress) {
         try {
             String[] parts = line.split("=", 2);
             if (parts.length != 2) {
@@ -201,15 +204,17 @@ public class ProcessTranscoder implements Transcoder {
             }
             String key = parts[0].trim();
             String value = parts[1].trim();
-            if ("progress".equals(key) && "end".equals(value)) {
-                return;
-            }
-            if ("out_time_ms".equals(key) || "out_time_us".equals(key)) {
+            if (sourceDurationMs > 0 && ("out_time_ms".equals(key) || "out_time_us".equals(key))) {
                 // Both keys carry microseconds in FFmpeg's progress output. The name out_time_ms is
-                // historical; dividing it by 1000 would report a progress value a thousand times too
-                // large. This is asserted against real encoder output in ProcessTranscoderIT.
+                // historical. BigInteger keeps both the percentage numerator and the duration in
+                // microseconds exact even when either would overflow a long after multiplication.
                 long micros = Long.parseLong(value);
-                progress.onProgress((int) Math.min(99, Math.max(0, micros / 1_000_000)));
+                if (micros < 0) {
+                    return;
+                }
+                BigInteger percent = BigInteger.valueOf(micros).multiply(BigInteger.valueOf(100))
+                        .divide(BigInteger.valueOf(sourceDurationMs).multiply(BigInteger.valueOf(1000)));
+                progress.onProgress(percent.min(BigInteger.valueOf(99)).intValue());
             }
         } catch (RuntimeException e) {
             // A malformed progress line must not stop the reader.

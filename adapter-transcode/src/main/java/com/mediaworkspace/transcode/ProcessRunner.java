@@ -107,10 +107,12 @@ public final class ProcessRunner {
                             synchronized (stdoutLines) {
                                 stdoutLines.add(line);
                             }
-                            standardOutput.accept(line);
                         } else {
                             truncated.set(true);
                         }
+                        // Retention is bounded, but progress must keep flowing throughout a long
+                        // encode even after the retained diagnostic output fills its budget.
+                        standardOutput.accept(line);
                     });
                 } finally {
                     finished.countDown();
