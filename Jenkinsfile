@@ -53,12 +53,45 @@ pipeline {
         stage('Checkout') {
             steps {
                 script {
-                    checkout scm
-                    def head = params.HEAD_COMMIT?.trim() ? params.HEAD_COMMIT.trim() : env.GIT_COMMIT
+                    def checkoutState = checkout scm
+                    def requestedHead = params.HEAD_COMMIT?.toString()?.trim()
+                    def head = ''
+                    def isCommitId = { value ->
+                        value != null && value.toString() ==~ /(?i)[0-9a-f]{7,64}/
+                    }
+
+                    // Some Jenkins agents do not populate GIT_COMMIT for this checkout. Use the
+                    // checkout step's result when present, otherwise ask Git for the checked-out
+                    // commit. Treat the literal string "null" like an omitted parameter.
+                    if (requestedHead && !requestedHead.equalsIgnoreCase('null')) {
+                        if (!isCommitId(requestedHead)) {
+                            error("Invalid HEAD_COMMIT '${requestedHead}'; provide a commit SHA or leave it empty.")
+                        }
+                        head = requestedHead
+                    } else {
+                        def checkoutCommit = checkoutState instanceof Map ?
+                            checkoutState.get('GIT_COMMIT')?.toString()?.trim() : null
+                        if (isCommitId(checkoutCommit)) {
+                            head = checkoutCommit
+                        } else {
+                            try {
+                                head = sh(script: 'git rev-parse --verify HEAD^{commit}', returnStdout: true).trim()
+                            } catch (Exception ignored) {
+                                error('Unable to resolve the checked-out commit after checkout scm.')
+                            }
+                        }
+                    }
                     sh "git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*' || true"
                     // The exact commit is resolved and recorded; every later stage quotes this value,
                     // so the artifact's provenance is a resolved object, not a branch name.
-                    env.HEAD_SHA = sh(script: "git rev-parse --verify ${head}^{commit}", returnStdout: true).trim()
+                    try {
+                        env.HEAD_SHA = sh(script: "git rev-parse --verify ${head}^{commit}", returnStdout: true).trim()
+                    } catch (Exception ignored) {
+                        if (requestedHead && !requestedHead.equalsIgnoreCase('null')) {
+                            error("HEAD_COMMIT '${requestedHead}' does not resolve to a commit in this checkout.")
+                        }
+                        error('Unable to resolve the checked-out commit to a Git commit object.')
+                    }
                     env.BASE_SHA = sh(script: "git rev-parse --verify ${params.BASE_COMMIT}^{commit}", returnStdout: true).trim()
                     sh "git checkout --force ${env.HEAD_SHA}"
                     // A base that is not an ancestor means the range is not a reviewable change set.
