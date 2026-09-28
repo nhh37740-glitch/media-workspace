@@ -11,8 +11,8 @@ SSH 主机指纹记录在 `docs/ssh-host-fingerprint.txt`，如与本机记录�
 | 组件 | 监听 | 对外 |
 |---|---|---|
 | Nginx | 0.0.0.0:8088 | 是，唯一公开端口 |
-| API | 127.0.0.1:8080 | 否 |
-| Worker 健康端点 | 127.0.0.1:8090 | 否，只提供 actuator |
+| API Docker 容器 | host 网络，127.0.0.1:8080 | 否；Compose 不发布端口 |
+| Worker Docker 容器 | host 网络，127.0.0.1:8090 健康端点 | 否；只提供 actuator |
 | MySQL | 127.0.0.1:3306 | 否 |
 | Kafka | 127.0.0.1:9092 | 否 |
 | Jenkins | 127.0.0.1:8081 | 否，需要时用 SSH 隧道 |
@@ -25,7 +25,7 @@ SSH 主机指纹记录在 `docs/ssh-host-fingerprint.txt`，如与本机记录�
 这台机器上还有云厂商的代理进程（`tat_agent`、`YDService` 等）常驻约 400 MiB，**不属于本项目，
 不能停**。因此可用内存约 1.5 GiB。
 
-2026-09-25 实测的常驻占用（RSS，`ps -eo rss`）：
+2026-09-25 实测的常驻占用（RSS，`ps -eo rss`；当时 API/Worker 以宿主机 JVM 运行）：
 
 | 组件 | 实测 | 配置 |
 |---|---|---|
@@ -35,15 +35,19 @@ SSH 主机指纹记录在 `docs/ssh-host-fingerprint.txt`，如与本机记录�
 | Worker | 约 240 MiB | `-Xmx192m -XX:+UseSerialGC` |
 | Nginx | 约 15 MiB | — |
 
-四个常驻组件合计约 1.0 GiB，加上云厂商代理约 1.4 GiB，在 1962 MiB 下留有约 500 MiB 余量。
+当前 Docker Compose 为 API 设置 384 MiB、Worker 设置 512 MiB 的容器内存上限；默认 Java 堆仍为 192 MiB，
+Worker 并发为 1。canary 使用更低的 320/384 MiB 容器上限和 128 MiB 堆。容器只隔离 API 与 Worker；
+MySQL、Kafka、Nginx 和 Jenkins 仍是宿主机服务。
 
-**峰值来源是构建，不是运行。** 一次 `./gradlew clean check bootJar jar` 会再拉起
-Gradle 守护进程与测试 JVM，加上 Node 构建，实测在服务同时运行时会把机器压到 SSH 握手超时。
-因此：
+按上述宿主机 JVM 的 RSS 实测，四个常驻组件合计约 1.0 GiB；加上云厂商代理约 1.4 GiB，
+在 1962 MiB 下留有约 500 MiB 余量。Docker 资源上限是当前配置值，实际部署的 RSS 需由 Jenkins/服务器监控验证。
 
-- `scripts/deploy-demo.sh` **先停服务再构建**；
-- `scripts/ci-prepare.sh` 在 Jenkins 的构建阶段同样先停服务，只保留 MySQL 与 Kafka
-  （集成测试需要它们）；
+**峰值来源是构建，不是运行。** Gradle 测试 JVM 和 Node 构建会增加较多内存，因此代码编译、测试、
+前端构建和发布包组装都在服务器 Jenkins agent 的流水线中完成。不要在开发机或 Codex 工作区本地编译。
+集成阶段会停止 API/Worker 容器，保留测试需要的 MySQL 与 Kafka；流水线结束时会恢复当前服务。因此：
+
+- `scripts/deploy-demo.sh` 只接收 Jenkins 已验证的二进制发布目录，不会重新编译源代码；
+- Jenkins 在集成测试期间停止 API/Worker 容器，只保留 MySQL 与 Kafka；
 - 交换分区 4 GiB **只作 OOM 保护**，不作为容量使用。`vm.swappiness=10`。
 
 不要在这台机器上同时运行：两个构建、构建与转码、或构建与 Jenkins 构建。
@@ -59,6 +63,10 @@ sudo bash scripts/provision-host.sh
 安装并格式化单节点 KRaft Kafka、创建三个主题、创建存储目录，并把运行期配置与自动生成的密码写入
 `/opt/media-workspace/config/media-workspace.env`（0640，属主 root:ubuntu）。
 
+Docker Engine 与 Compose v2 由服务器维护，不由此脚本安装。发布前须确认 Docker daemon 正常、
+Jenkins agent 能通过 `sudo docker` 管理容器，并且该 agent 对 `/opt/media-workspace/var/storage`
+及日志目录有写权限。容器以该 agent 的 UID/GID 运行，保证持久 bind mount 可写。
+
 该文件是唯一存放密码的地方，**不在仓库里，也不写进日志**。已经存在的键不会被重写，
 因此重复执行不会把数据库密码换掉。
 
@@ -70,49 +78,31 @@ bash scripts/generate-test-media.sh /opt/media-workspace/var/test-media
 
 ## 4. 构建与测试
 
-```bash
-# 单元测试 + 两个可执行 JAR + 库 JAR。不需要外部服务。
-./gradlew clean check bootJar jar
-
-# 真实 MySQL / Kafka / FFmpeg 的集成测试。每次运行自建独立 schema 与存储目录。
-bash scripts/run-integration-tests.sh
-
-# 只跑某个模块的集成测试
-bash scripts/run-integration-tests.sh :adapter-persistence:integrationTest
-
-# 转码适配器的集成测试（需要测试素材）
-MW_TEST_MEDIA=/opt/media-workspace/var/test-media ./gradlew :adapter-transcode:integrationTest
-
-# 架构依赖方向与版本锁定
-./gradlew architectureCheck versionLockCheck
-
-# 契约校验（schema、样例、拒绝用例、feature 引用）
-python3 scripts/validate-contracts.py
-
-# 测试数量统计；零测试视为失败
-python3 scripts/count-test-results.py --require-nonzero
-
-# 单模块修改范围门禁
-bash scripts/check_change_scope.sh --base <SHA> --head <SHA> --module <模块名>
-```
-
-集成测试的凭据通过环境变量传入，由 `scripts/run-integration-tests.sh` 从运行期配置文件导出。
+所有构建和测试从 Jenkins 触发。选择责任模块并提供基线提交；发布构建必须运行集成测试，
+不能通过参数跳过范围门禁、后端/前端测试或发布所需的集成测试。流水线依次执行契约与架构校验、
+后端和前端测试、真实 MySQL/Kafka/FFmpeg 集成测试、制品组装。集成测试的凭据由服务器运行期配置注入，
+不会写入仓库或构建命令行。每次运行使用独立 schema、存储目录和 Kafka 前缀。
 
 ## 5. 部署
 
-```bash
-bash scripts/deploy-demo.sh
-```
+通过 Jenkins 构建参数发布：设置有效的 `RELEASE_VERSION`、启用 `DEPLOY_DEMO`，并选择 `build-delivery`
+责任模块。流水线必须完成集成测试和制品校验才会进入 DeployDemo；不要在开发机运行部署脚本。
+`scripts/deploy-demo.sh` 只能消费当前 Jenkins workspace 中的已验证二进制包。
 
-流程：停服务 → 构建发布目录 → 校验 SHA256SUMS → 迁移 schema（独立进程，不经过两个服务）
-→ 切换 `current` 符号链接 → 启动 → 等待就绪 → 冒烟；冒烟失败则把符号链接切回上一个版本，
-**数据库不回滚**（迁移按向前兼容新增字段设计，反向 DDL 有风险）。
+部署流程：校验完整 commit、干净工作树和 `SHA256SUMS` → 从两个可执行 JAR 构建独立 API/Worker 镜像
+→ 在旧服务继续工作的同时，用独立 schema、Kafka topic 前缀、存储与日志目录启动候选容器
+→ 对候选执行 API/Worker readiness 和完整上传、转码、播放 smoke → 清理 canary → 停止旧服务
+→ 运行生产 schema migration → 切换 `current` → 启动新容器 → 经 Nginx 再跑完整 smoke。
+候选验证失败时旧版本继续服务；切换后的启动或 smoke 失败则自动恢复上一版本并重启旧服务。
+**数据库不回滚**（migration 按向前兼容新增字段设计，反向 DDL 有风险）。
 
 发布目录布局：
 
 ```
 /opt/media-workspace/
-  releases/<version>-<shortCommit>/{apps,libs,web,config,scripts,manifest.json,SHA256SUMS}
+  releases/<version>-<shortCommit>/{apps,libs,web,config,scripts,docker,manifest.json,SHA256SUMS}
+    docker/{api,worker}/        各自的 Docker build context 与可执行 JAR
+    docker/compose.yaml         API/Worker 运行定义
   current -> releases/<version>-<shortCommit>
   var/{storage,logs,run,test-media,kafka-logs}
   config/media-workspace.env
@@ -128,8 +118,9 @@ bash scripts/deploy-demo.sh
 bash scripts/service.sh start|stop|restart|status api|worker|all [发布目录]
 ```
 
-脚本只操作自己记录的 PID：停止前会核对 `/proc/<pid>/stat` 里的进程启动时间与记录值是否一致，
-不一致就认为 PID 被复用、拒绝操作。**不会按进程名杀进程**，这台机器上其他项目的 JVM 不受影响。
+新发布由 Docker Compose 管理。脚本仅按固定的 Compose 项目与服务标签检查和停止本项目容器；
+旧发布回滚仍兼容 PID 管理，停止前会核对 `/proc/<pid>/stat` 中的进程启动时间，拒绝操作被复用的 PID。
+**不会按进程名杀进程，也不操作其他 Compose 项目。**
 
 日志：
 
@@ -138,6 +129,9 @@ bash scripts/service.sh start|stop|restart|status api|worker|all [发布目录]
 /opt/media-workspace/var/logs/api/media-api.json  每行一个 JSON 对象
 /opt/media-workspace/var/logs/worker/...
 ```
+
+`media-api.json`、`media-worker.json` 由宿主机 bind mount 持久保存；容器 stdout/stderr 可通过
+`sudo docker logs <容器>` 查看（`service.sh status` 会列出容器 ID）。`console.log` 是旧 PID 发布的日志路径。
 
 JSON 日志里的 `traceId`、`taskId`、`generation`、`attempt`、`executionEpoch`、`workerId`
 用于把一次任务链路串起来：
@@ -168,7 +162,7 @@ grep KAFKA_TOPIC_PREFIX /opt/media-workspace/config/media-workspace.env
 说明磁盘满了或卷被卸载：
 
 ```bash
-df -h /opt/media-workspace; tail -5 /opt/media-workspace/var/logs/api/console.log
+df -h /opt/media-workspace; tail -5 /opt/media-workspace/var/logs/api/media-api.json
 ```
 
 **机器失去响应**：几乎总是构建与常驻服务同时在跑。等待构建结束；恢复后按第 4 节的做法错峰。

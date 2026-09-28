@@ -19,8 +19,11 @@ BUILD_ROOT_FILES = {
     "gradle.properties", "gradlew", "gradlew.bat", "Jenkinsfile", ".gitignore",
     ".gitattributes", "README.md", "CLAUDE.md", "agent.md",
 }
-# The shared test matrix is delivery evidence; keep its ownership path-specific.
-BUILD_DELIVERY_DOCS = {"docs/test-matrix.md"}
+# Delivery operations and evidence are owned by the build-delivery module; keep their scope
+# explicit so changing them does not require weakening the single-module gate.
+BUILD_DELIVERY_DOCS = {
+    "docs/decisions.md", "docs/runbook.md", "docs/test-matrix.md",
+}
 
 
 def owner(path):
