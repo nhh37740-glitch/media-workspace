@@ -17,13 +17,22 @@ RELEASE="${1:-$(readlink -f "$DEPLOY_ROOT/current")}"
 [ -r "$ENV_FILE" ] || { echo "cannot read $ENV_FILE" >&2; exit 1; }
 [ -d "$RELEASE" ] || { echo "release directory $RELEASE does not exist" >&2; exit 1; }
 
+DB_NAME_OVERRIDE="${MW_DB_NAME_OVERRIDE:-}"
+STORAGE_ROOT_OVERRIDE="${MW_STORAGE_ROOT_OVERRIDE:-}"
+LOG_DIR_OVERRIDE="${MW_LOG_DIR_OVERRIDE:-}"
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 set +a
 
+# The canary deployment uses a throwaway schema and storage directory while the current version
+# remains online. These explicit overrides are applied only after loading the protected production
+# configuration; ordinary production bootstraps continue to use its values unchanged.
+[ -z "$DB_NAME_OVERRIDE" ] || export DB_NAME="$DB_NAME_OVERRIDE"
+[ -z "$STORAGE_ROOT_OVERRIDE" ] || export STORAGE_ROOT="$STORAGE_ROOT_OVERRIDE"
+
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
-export LOG_DIR="${LOG_DIR:-$DEPLOY_ROOT/var/logs/api}"
+export LOG_DIR="${LOG_DIR_OVERRIDE:-${LOG_DIR:-$DEPLOY_ROOT/var/logs/api}}"
 mkdir -p "$LOG_DIR"
 
 jar="$(find "$RELEASE/apps" -maxdepth 1 -name 'media-api-*.jar' | head -1)"

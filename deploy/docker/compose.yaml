@@ -1,0 +1,133 @@
+services:
+  api:
+    image: ${MEDIA_API_IMAGE:?MEDIA_API_IMAGE is required}
+    build:
+      context: api
+      dockerfile: Dockerfile
+      args:
+        MEDIA_UID: ${MEDIA_UID:-1000}
+        MEDIA_GID: ${MEDIA_GID:-1000}
+    init: true
+    user: "${MEDIA_UID:-1000}:${MEDIA_GID:-1000}"
+    network_mode: host
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: ${MEDIA_API_MEM_LIMIT:-384m}
+    command:
+      - -Xms${MEDIA_API_HEAP_INITIAL:-128m}
+      - -Xmx${MEDIA_API_HEAP:-192m}
+      - -XX:MaxMetaspaceSize=128m
+      - -XX:ReservedCodeCacheSize=64m
+      - -Xss512k
+      - -XX:+UseSerialGC
+      - -XX:+ExitOnOutOfMemoryError
+      - -Dfile.encoding=UTF-8
+      - -Duser.timezone=UTC
+      - -jar
+      - /app/media-api.jar
+    env_file:
+      - ${MW_ENV_FILE:?MW_ENV_FILE must point to the protected runtime config}
+    environment:
+      HTTP_ADDRESS: 127.0.0.1
+      HTTP_PORT: ${MEDIA_API_PORT:-8080}
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: ${MEDIA_DB_NAME:?MEDIA_DB_NAME is required}
+      KAFKA_BOOTSTRAP: 127.0.0.1:9092
+      KAFKA_TOPIC_PREFIX: ${MEDIA_KAFKA_TOPIC_PREFIX-}
+      STORAGE_ROOT: /var/lib/media-workspace/storage
+      LOG_DIR: /var/log/media-workspace/api
+      WORKER_CONCURRENCY: ${MEDIA_WORKER_CONCURRENCY:-1}
+    volumes:
+      - type: bind
+        source: ${MEDIA_STORAGE_HOST_PATH:?MEDIA_STORAGE_HOST_PATH is required}
+        target: /var/lib/media-workspace/storage
+      - type: bind
+        source: ${MEDIA_API_LOG_HOST_PATH:?MEDIA_API_LOG_HOST_PATH is required}
+        target: /var/log/media-workspace/api
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${HTTP_PORT}/actuator/health/readiness >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+    stop_grace_period: 30s
+
+  worker:
+    image: ${MEDIA_WORKER_IMAGE:?MEDIA_WORKER_IMAGE is required}
+    build:
+      context: worker
+      dockerfile: Dockerfile
+      args:
+        MEDIA_UID: ${MEDIA_UID:-1000}
+        MEDIA_GID: ${MEDIA_GID:-1000}
+    init: true
+    user: "${MEDIA_UID:-1000}:${MEDIA_GID:-1000}"
+    network_mode: host
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MEDIA_WORKER_MEM_LIMIT:-512m}
+    command:
+      - -Xms${MEDIA_WORKER_HEAP_INITIAL:-128m}
+      - -Xmx${MEDIA_WORKER_HEAP:-192m}
+      - -XX:MaxMetaspaceSize=128m
+      - -XX:ReservedCodeCacheSize=64m
+      - -Xss512k
+      - -XX:+UseSerialGC
+      - -XX:+ExitOnOutOfMemoryError
+      - -Dfile.encoding=UTF-8
+      - -Duser.timezone=UTC
+      - -jar
+      - /app/media-worker.jar
+    env_file:
+      - ${MW_ENV_FILE:?MW_ENV_FILE must point to the protected runtime config}
+    environment:
+      WORKER_HEALTH_PORT: ${MEDIA_WORKER_HEALTH_PORT:-8090}
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: ${MEDIA_DB_NAME:?MEDIA_DB_NAME is required}
+      KAFKA_BOOTSTRAP: 127.0.0.1:9092
+      KAFKA_TOPIC_PREFIX: ${MEDIA_KAFKA_TOPIC_PREFIX-}
+      STORAGE_ROOT: /var/lib/media-workspace/storage
+      LOG_DIR: /var/log/media-workspace/worker
+      WORKER_CONCURRENCY: ${MEDIA_WORKER_CONCURRENCY:-1}
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      FFPROBE_PATH: /usr/bin/ffprobe
+    volumes:
+      - type: bind
+        source: ${MEDIA_STORAGE_HOST_PATH:?MEDIA_STORAGE_HOST_PATH is required}
+        target: /var/lib/media-workspace/storage
+      - type: bind
+        source: ${MEDIA_WORKER_LOG_HOST_PATH:?MEDIA_WORKER_LOG_HOST_PATH is required}
+        target: /var/log/media-workspace/worker
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${WORKER_HEALTH_PORT}/actuator/health/readiness >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+    stop_grace_period: 60s

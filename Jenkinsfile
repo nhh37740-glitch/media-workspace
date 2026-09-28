@@ -92,6 +92,9 @@ pipeline {
                         }
                         error('Unable to resolve the checked-out commit to a Git commit object.')
                     }
+                    // The release manifest reads GIT_COMMIT; the git plugin may leave it unset on
+                    // this agent, so make the canonical checkout SHA explicit for provenance.
+                    env.GIT_COMMIT = env.HEAD_SHA
                     env.BASE_SHA = sh(script: "git rev-parse --verify ${params.BASE_COMMIT}^{commit}", returnStdout: true).trim()
                     sh "git checkout --force ${env.HEAD_SHA}"
                     // A base that is not an ancestor means the range is not a reviewable change set.
@@ -150,11 +153,21 @@ pipeline {
                 // does not hold two application JVMs, a broker, MySQL and a Gradle build at once.
                 // Integration tests create their own schema per run, so stopping the services does
                 // not affect them, and MySQL and Kafka stay up because they are the dependencies.
-                sh 'bash scripts/ci-prepare.sh'
+                script {
+                    env.MEDIA_SERVICES_STOPPED_FOR_CI = 'true'
+                    sh 'bash scripts/ci-prepare.sh'
+                }
                 sh 'bash scripts/run-integration-tests.sh'
             }
             post {
                 always {
+                    script {
+                        if (env.MEDIA_SERVICES_STOPPED_FOR_CI == 'true'
+                                && fileExists("${env.DEPLOY_ROOT}/current")) {
+                            sh 'bash scripts/service.sh start all'
+                            env.MEDIA_SERVICES_STOPPED_FOR_CI = 'false'
+                        }
+                    }
                     junit(testResults: '**/build/test-results/integrationTest/*.xml', allowEmptyResults: true)
                 }
             }
@@ -162,7 +175,10 @@ pipeline {
 
         stage('Package') {
             steps {
-                sh 'bash scripts/build-release.sh'
+                // Backend and frontend were already built and tested. Assembly reuses those
+                // artifacts so Jenkins does not run a second memory-heavy compile beside MySQL,
+                // Kafka, and the restored demo services.
+                sh 'SKIP_BACKEND_BUILD=1 WEB_DIST_DIR="$WORKSPACE/web/dist" bash scripts/build-release.sh'
                 sh 'ls -la build/release/*.zip'
             }
         }
@@ -175,7 +191,17 @@ pipeline {
             }
             steps {
                 lock('media-workspace-demo-deployment') {
-                    sh 'bash scripts/deploy-demo.sh'
+                    script {
+                        def releaseDir = sh(
+                            script: "find build/release -mindepth 1 -maxdepth 1 -type d -print -quit",
+                            returnStdout: true
+                        ).trim()
+                        if (!releaseDir) {
+                            error('Jenkins Package stage did not produce a release directory.')
+                        }
+                        env.MW_PREBUILT_RELEASE = "${pwd()}/${releaseDir}"
+                        sh 'MW_PREBUILT_RELEASE="$MW_PREBUILT_RELEASE" bash scripts/deploy-demo.sh'
+                    }
                 }
             }
         }

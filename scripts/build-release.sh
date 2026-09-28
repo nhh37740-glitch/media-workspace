@@ -21,6 +21,7 @@ cd "$REPO_ROOT"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/build/release}"
 SKIP_TESTS="${SKIP_TESTS:-0}"
 SKIP_WEB="${SKIP_WEB:-0}"
+SKIP_BACKEND_BUILD="${SKIP_BACKEND_BUILD:-0}"
 
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
 
@@ -31,7 +32,7 @@ read_version() {
 }
 
 read_commit() {
-  if [ -n "${GIT_COMMIT:-}" ]; then
+  if [ -n "${GIT_COMMIT:-}" ] && [ "${GIT_COMMIT,,}" != "null" ]; then
     printf '%s' "$GIT_COMMIT"
   elif git rev-parse --verify HEAD >/dev/null 2>&1; then
     git rev-parse HEAD
@@ -77,11 +78,21 @@ GRADLE_TASKS="clean bootJar jar"
 if [ "$SKIP_TESTS" != "1" ]; then
   GRADLE_TASKS="clean check bootJar jar"
 fi
-log "running ./gradlew $GRADLE_TASKS"
-bash ./gradlew --no-daemon $GRADLE_TASKS
+if [ "$SKIP_BACKEND_BUILD" = "1" ]; then
+  for app in media-api media-worker; do
+    if ! compgen -G "$app/build/libs/${app}-*.jar" >/dev/null; then
+      echo "missing prebuilt $app JAR; run the Jenkins Backend stage before assembly" >&2
+      exit 1
+    fi
+  done
+  log "using JARs already verified by the Jenkins Backend stage"
+else
+  log "running ./gradlew $GRADLE_TASKS"
+  bash ./gradlew --no-daemon $GRADLE_TASKS
+fi
 
 rm -rf "$RELEASE_DIR"
-mkdir -p "$RELEASE_DIR"/{apps,libs,web,config,scripts}
+mkdir -p "$RELEASE_DIR"/{apps,libs,web,config,scripts,docker/api,docker/worker}
 
 log "collecting applications"
 cp media-api/build/libs/media-api-"$VERSION".jar "$RELEASE_DIR/apps/"
@@ -126,6 +137,11 @@ fi
 log "collecting configuration templates and scripts"
 cp deploy/jvm/*.opts "$RELEASE_DIR/config/"
 cp -r deploy/nginx "$RELEASE_DIR/config/" 2>/dev/null || true
+cp deploy/docker/api.Dockerfile "$RELEASE_DIR/docker/api/Dockerfile"
+cp deploy/docker/worker.Dockerfile "$RELEASE_DIR/docker/worker/Dockerfile"
+cp deploy/docker/compose.yaml "$RELEASE_DIR/docker/"
+cp media-api/build/libs/media-api-"$VERSION".jar "$RELEASE_DIR/docker/api/media-api.jar"
+cp media-worker/build/libs/media-worker-"$VERSION".jar "$RELEASE_DIR/docker/worker/media-worker.jar"
 cp scripts/service.sh scripts/smoke-test.sh scripts/check_change_scope.py \
    scripts/check_change_scope.sh "$RELEASE_DIR/scripts/"
 chmod +x "$RELEASE_DIR/scripts"/*.sh
