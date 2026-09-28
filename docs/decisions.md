@@ -125,7 +125,8 @@ SSH 握手会超时 —— 机器在交换分区上抖动到无法调度。
 **背景**：API 和 Worker 共享数据库、Kafka 与媒体存储，但需要分别交付、限制资源并控制进程权限。
 
 **决定**：API、Worker 使用各自的 Dockerfile/build context 和 Docker 容器，非 root 用户运行；容器只读根文件系统，移除 Linux
-capabilities，限制内存与进程数。两者通过显式 bind mount 共用宿主机持久存储，日志分目录保存。使用 host
+capabilities，限制内存与进程数。仅 `/tmp` 是带 `nosuid,nodev` 的 128 MiB tmpfs，并显式允许执行：Kafka Snappy
+需要从该目录映射其解压出的原生 `.so` 库。两者通过显式 bind mount 共用宿主机持久存储，日志分目录保存。使用 host
 网络连接仍只监听回环的 MySQL、Kafka、Nginx upstream 和健康端点；Compose 不配置端口发布。MySQL、Kafka、
 Nginx 与 Jenkins 保持现有宿主机服务部署。
 

@@ -18,7 +18,7 @@ services:
         max-file: "3"
     read_only: true
     tmpfs:
-      - /tmp:rw,nosuid,size=128m
+      - /tmp:rw,nosuid,nodev,exec,size=128m
     cap_drop:
       - ALL
     security_opt:
@@ -84,7 +84,7 @@ services:
         max-file: "3"
     read_only: true
     tmpfs:
-      - /tmp:rw,nosuid,size=128m
+      - /tmp:rw,nosuid,nodev,exec,size=128m
     cap_drop:
       - ALL
     security_opt:

@@ -38,6 +38,8 @@ SSH 主机指纹记录在 `docs/ssh-host-fingerprint.txt`，如与本机记录�
 当前 Docker Compose 为 API 设置 384 MiB、Worker 设置 512 MiB 的容器内存上限；默认 Java 堆仍为 192 MiB，
 Worker 并发为 1。canary 使用更低的 320/384 MiB 容器上限和 128 MiB 堆。容器只隔离 API 与 Worker；
 MySQL、Kafka、Nginx 和 Jenkins 仍是宿主机服务。
+容器根文件系统保持只读；`/tmp` 单独使用 128 MiB 的 `nosuid,nodev,exec` tmpfs，供 Kafka Snappy
+加载其解压出的原生共享库。容器仍以非 root 用户运行并丢弃全部 Linux capabilities。
 
 按上述宿主机 JVM 的 RSS 实测，四个常驻组件合计约 1.0 GiB；加上云厂商代理约 1.4 GiB，
 在 1962 MiB 下留有约 500 MiB 余量。Docker 资源上限是当前配置值，实际部署的 RSS 需由 Jenkins/服务器监控验证。
