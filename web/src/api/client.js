@@ -33,16 +33,36 @@ export class ApiError extends Error {
 }
 
 let csrfToken = null
+let csrfRefresh = null
 
 /** Fetches a CSRF token and remembers it. The server decides the header name. */
 export async function refreshCsrf() {
-  const response = await fetch(`${API_PREFIX}/auth/csrf`, { credentials: 'same-origin' })
-  if (!response.ok) {
-    throw new ApiError('CSRF_UNAVAILABLE', '无法获取安全令牌', response.status)
+  if (csrfRefresh) {
+    return csrfRefresh
   }
-  const body = await response.json()
-  csrfToken = { token: body.token, headerName: body.headerName }
-  return csrfToken
+  csrfRefresh = (async () => {
+    const response = await fetch(`${API_PREFIX}/auth/csrf`, { credentials: 'same-origin' })
+    if (!response.ok) {
+      throw new ApiError('CSRF_UNAVAILABLE', '无法获取安全令牌', response.status)
+    }
+    let body
+    try {
+      body = await response.json()
+    } catch {
+      throw new ApiError('CSRF_UNAVAILABLE', '安全令牌服务返回了无效响应', response.status)
+    }
+    if (typeof body?.token !== 'string' || !body.token ||
+        typeof body?.headerName !== 'string' || !body.headerName) {
+      throw new ApiError('CSRF_UNAVAILABLE', '安全令牌服务未返回令牌', response.status)
+    }
+    csrfToken = { token: body.token, headerName: body.headerName }
+    return csrfToken
+  })()
+  try {
+    return await csrfRefresh
+  } finally {
+    csrfRefresh = null
+  }
 }
 
 /** Forgets the cached token. Called after login and logout, which both rotate the session. */
@@ -116,11 +136,23 @@ export async function request(method, path, options = {}) {
 }
 
 export const auth = {
-  /** Signs in and rotates the local CSRF token, because the session changed. */
+  /** Signs in and drops the pre-login token; the next unsafe request fetches one for the new session. */
   async login(username, password) {
-    const user = await request('POST', '/auth/login', { body: { username, password } })
+    let user
+    try {
+      user = await request('POST', '/auth/login', { body: { username, password } })
+    } catch (error) {
+      // Another tab or an expired server session can invalidate this tab's cached session-bound
+      // token. Login has no side effects until credentials are accepted, so one fresh-token retry
+      // is safe; other forbidden requests are never replayed automatically.
+      if (error.status !== 403) {
+        throw error
+      }
+      clearCsrf()
+      await refreshCsrf()
+      user = await request('POST', '/auth/login', { body: { username, password } })
+    }
     clearCsrf()
-    await refreshCsrf()
     return user
   },
   async logout() {

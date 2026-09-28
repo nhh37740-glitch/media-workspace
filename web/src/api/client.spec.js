@@ -44,6 +44,92 @@ describe('api client', () => {
     expect(JSON.parse(post.options.body)).toEqual({ name: 'demo' })
   })
 
+  it('reports an unavailable CSRF token before sending a login request', async () => {
+    const calls = []
+    vi.stubGlobal('fetch', async (url) => {
+      calls.push(url)
+      return url.endsWith('/auth/csrf')
+        ? jsonResponse({ headerName: 'X-CSRF-TOKEN' })
+        : jsonResponse({ userId: 'u1', username: 'owner' })
+    })
+
+    await expect(auth.login('owner', 'secret')).rejects.toMatchObject({
+      code: 'CSRF_UNAVAILABLE',
+      message: '安全令牌服务未返回令牌'
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('/auth/csrf')
+  })
+
+  it('shares one CSRF fetch across concurrent unsafe requests', async () => {
+    let csrfCalls = 0
+    vi.stubGlobal('fetch', async (url) => {
+      if (url.endsWith('/auth/csrf')) {
+        csrfCalls += 1
+        await Promise.resolve()
+        return jsonResponse({ token: 'shared', headerName: 'X-CSRF-TOKEN' })
+      }
+      return jsonResponse({}, { status: 204 })
+    })
+
+    await Promise.all([
+      request('POST', '/first', { body: {} }),
+      request('POST', '/second', { body: {} })
+    ])
+
+    expect(csrfCalls).toBe(1)
+  })
+
+  it('refreshes a stale CSRF token and retries login only once', async () => {
+    const calls = []
+    let csrfCalls = 0
+    let loginCalls = 0
+    vi.stubGlobal('fetch', async (url, options = {}) => {
+      calls.push({ url, options })
+      if (url.endsWith('/auth/csrf')) {
+        csrfCalls += 1
+        return jsonResponse({ token: `token-${csrfCalls}`, headerName: 'X-CSRF-TOKEN' })
+      }
+      loginCalls += 1
+      if (loginCalls === 1) {
+        return jsonResponse(
+          { code: 'FORBIDDEN', message: 'this operation is not permitted' },
+          { status: 403, ok: false }
+        )
+      }
+      return jsonResponse({ userId: 'u1', username: 'owner' })
+    })
+
+    const user = await auth.login('owner', 'secret')
+
+    expect(user.userId).toBe('u1')
+    expect(csrfCalls).toBe(2) // initial token and the stale-token refresh before retry
+    expect(loginCalls).toBe(2)
+    expect(calls.filter(({ url }) => url.endsWith('/auth/login'))
+      .map(({ options }) => options.headers['X-CSRF-TOKEN']))
+      .toEqual(['token-1', 'token-2'])
+  })
+
+  it('does not retry a failed login more than once', async () => {
+    let csrfCalls = 0
+    let loginCalls = 0
+    vi.stubGlobal('fetch', async (url) => {
+      if (url.endsWith('/auth/csrf')) {
+        csrfCalls += 1
+        return jsonResponse({ token: `token-${csrfCalls}`, headerName: 'X-CSRF-TOKEN' })
+      }
+      loginCalls += 1
+      return jsonResponse(
+        { code: 'FORBIDDEN', message: 'this operation is not permitted' },
+        { status: 403, ok: false }
+      )
+    })
+
+    await expect(auth.login('owner', 'secret')).rejects.toMatchObject({ status: 403 })
+    expect(loginCalls).toBe(2)
+    expect(csrfCalls).toBe(2)
+  })
+
   it('does not fetch a token for a read', async () => {
     const calls = []
     vi.stubGlobal('fetch', async (url, options) => {
@@ -125,7 +211,7 @@ describe('api client', () => {
     await expect(request('DELETE', '/media/m1')).resolves.toBeNull()
   })
 
-  it('rotates the token after a login, because the session changed', async () => {
+  it('drops the pre-login token and lazily fetches one for the authenticated session', async () => {
     const csrfTokens = ['before', 'after']
     let csrfIndex = 0
     vi.stubGlobal('fetch', async (url) => {
@@ -134,15 +220,20 @@ describe('api client', () => {
         csrfIndex += 1
         return jsonResponse({ token, headerName: 'X-CSRF-TOKEN' })
       }
-      return jsonResponse({ userId: 'u1', username: 'owner' })
+      return url.endsWith('/auth/login')
+        ? jsonResponse({ userId: 'u1', username: 'owner' })
+        : jsonResponse({}, { status: 204 })
     })
 
     await refreshCsrf()
     const user = await auth.login('owner', 'secret')
+    expect(csrfIndex).toBe(1)
+
+    await request('POST', '/spaces', { body: { name: 'demo' } })
 
     expect(user.userId).toBe('u1')
-    // The login dropped the old token and fetched a new one, so a later request cannot present a
-    // token that belonged to the pre-login session.
+    // The post-login mutation fetches a token for the new session; login itself does not depend on
+    // a second CSRF endpoint round-trip after the server has already authenticated the user.
     expect(csrfIndex).toBe(2)
   })
 
