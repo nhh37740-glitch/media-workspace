@@ -97,6 +97,7 @@ APP_GID="$(id -g)"
 KAFKA_TOPIC_PREFIX="${KAFKA_TOPIC_PREFIX:-}"
 candidate_project=""
 candidate_db=""
+candidate_db_created=0
 candidate_root=""
 candidate_log_root=""
 candidate_topic_prefix=""
@@ -165,31 +166,46 @@ wait_ready() {
   return 1
 }
 
+validate_candidate_database_name() {
+  [[ "$candidate_db" =~ ^mw_it_deploy_[a-z0-9]+$ ]] \
+    && [ "${#candidate_db}" -le 64 ]
+}
+
+create_canary_database() {
+  validate_candidate_database_name \
+    || fail "refusing unsafe generated canary database name"
+  local sql
+  sql="CREATE DATABASE \`$candidate_db\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+  sudo mysql --protocol=socket --batch --skip-column-names --execute="$sql" >/dev/null
+  candidate_db_created=1
+}
+
 drop_canary_database() {
-  [ -n "$candidate_db" ] || return 0
-  local defaults_file escaped_password sql
-  defaults_file="$(mktemp /tmp/media-workspace-db.XXXXXX)"
-  chmod 0600 "$defaults_file"
-  escaped_password="${DB_PASSWORD//\\/\\\\}"
-  escaped_password="${escaped_password//\"/\\\"}"
-  {
-    printf '[client]\nhost=127.0.0.1\nport=3306\nuser=%s\npassword="%s"\n' \
-      "$DB_USER" "$escaped_password"
-  } > "$defaults_file"
-  sql='DROP DATABASE IF EXISTS `'"$candidate_db"'`'
-  mysql --defaults-extra-file="$defaults_file" --batch --skip-column-names \
-    --execute="$sql" >/dev/null 2>&1 || true
-  rm -f "$defaults_file"
+  [ "$candidate_db_created" = "1" ] || return 0
+  validate_candidate_database_name \
+    || { log "ERROR: refusing unsafe canary database name during cleanup"; return 1; }
+  local sql
+  sql="DROP DATABASE IF EXISTS \`$candidate_db\`"
+  if ! sudo mysql --protocol=socket --batch --skip-column-names --execute="$sql" >/dev/null; then
+    log "ERROR: could not drop canary database $candidate_db"
+    return 1
+  fi
+  candidate_db_created=0
 }
 
 cleanup_candidate() {
   [ -n "$candidate_project" ] || return 0
   log "removing isolated canary containers and test resources"
-  compose_for "$candidate_project" "$RELEASE" "$candidate_db" \
+  if ! compose_for "$candidate_project" "$RELEASE" "$candidate_db" \
     "$candidate_root/storage" "$candidate_log_root" "$candidate_topic_prefix" \
     "$candidate_api_port" "$candidate_worker_port" 1 320m 384m 128m 128m \
-    down --remove-orphans >/dev/null 2>&1 || true
-  drop_canary_database
+    down --remove-orphans >/dev/null 2>&1; then
+    log "ERROR: could not stop canary containers; leaving their database and storage intact"
+    return 1
+  fi
+  if ! drop_canary_database; then
+    return 1
+  fi
   if [ -n "$candidate_topic_prefix" ] && [ -x "$KAFKA_HOME/bin/kafka-topics.sh" ]; then
     for topic in media.task.requested.v1 media.task.result.v1 media.events.dlq.v1; do
       "$KAFKA_HOME/bin/kafka-topics.sh" --bootstrap-server 127.0.0.1:9092 \
@@ -253,6 +269,8 @@ compose_for "mw-build-$build_token" "$RELEASE" "$DB_NAME" "$STORAGE_ROOT" \
 
 candidate_project="mw-canary-$build_token"
 candidate_db="mw_it_deploy_$build_token"
+validate_candidate_database_name \
+  || fail "generated canary database name is invalid or longer than MySQL's 64-character limit"
 candidate_root="$DEPLOY_ROOT/var/candidates/$candidate_project"
 candidate_log_root="$DEPLOY_ROOT/var/logs/canary/$build_token"
 candidate_topic_prefix="mw-canary-$build_token-"
@@ -274,6 +292,7 @@ mkdir -p "$candidate_root/storage" "$candidate_log_root/api" "$candidate_log_roo
   || fail "the Jenkins service account cannot write the isolated canary paths"
 
 log "creating the isolated canary database and Kafka topics"
+create_canary_database
 MW_DB_NAME_OVERRIDE="$candidate_db" \
 MW_STORAGE_ROOT_OVERRIDE="$candidate_root/storage" \
 MW_LOG_DIR_OVERRIDE="$candidate_log_root/api" \

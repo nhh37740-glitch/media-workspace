@@ -126,7 +126,7 @@ API readiness 返回 200。
 | CI-02 失败测试阻止发布 | 注入失败的集成测试或前端构建失败；流水线失败、归档失败报告、不部署且无新成功发布标记 | NOT_RUN | build #9 未注入失败，未验证这些失败路径断言 |
 | CI-03 重启演示部署后冒烟 | 登录、上传、处理、播放及健康检查通过 | PASS | build #9 DeployDemo 和独立 Smoke 阶段均完成 8 步并通过；构建结束后 API/Worker 运行，readiness 200 |
 | CI-04 新版本部署健康失败 | 保留失败证据；schema 兼容时恢复上一制品并验证 | NOT_RUN | 未执行部署健康失败与回退验证 |
-| CI-05 Docker 运行隔离与安全边界 | API/Worker 分容器运行、非 root、资源受限；不发布端口；MySQL/Kafka 仍为回环宿主机服务；候选验证失败时旧版持续服务 | NOT_RUN | Docker 运行时与 canary/回退流程尚未由 Jenkins 在服务器实测 |
+| CI-05 Docker 运行隔离与安全边界 | API/Worker 分容器运行、非 root、资源受限；不发布端口；MySQL/Kafka 仍为回环宿主机服务；canary schema 由 sudo mysql 创建/清理并由应用账号迁移；候选验证失败时旧版持续服务 | NOT_RUN | Docker 运行时与 canary/回退流程尚未由 Jenkins 在服务器实测 |
 
 以上 PASS 只覆盖表中已实际验证的断言；其他未运行用例仍按第五节记录为 NOT_RUN。
 

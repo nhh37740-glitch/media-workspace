@@ -93,6 +93,8 @@ bash scripts/generate-test-media.sh /opt/media-workspace/var/test-media
 → 在旧服务继续工作的同时，用独立 schema、Kafka topic 前缀、存储与日志目录启动候选容器
 → 对候选执行 API/Worker readiness 和完整上传、转码、播放 smoke → 清理 canary → 停止旧服务
 → 运行生产 schema migration → 切换 `current` → 启动新容器 → 经 Nginx 再跑完整 smoke。
+Canary schema `mw_it_deploy_<token>` 先由 `sudo mysql` 创建为 `utf8mb4_0900_ai_ci`，
+再由应用数据库账号运行 migration；清理时使用相同的本机 root socket 管理通道删除该 schema。
 候选验证失败时旧版本继续服务；切换后的启动或 smoke 失败则自动恢复上一版本并重启旧服务。
 **数据库不回滚**（migration 按向前兼容新增字段设计，反向 DDL 有风险）。
 
