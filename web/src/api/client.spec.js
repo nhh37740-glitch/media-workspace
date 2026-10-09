@@ -24,6 +24,23 @@ describe('api client', () => {
     vi.unstubAllGlobals()
   })
 
+  it('creates a read-only guest session using CSRF and no embedded credentials', async () => {
+    const calls = []
+    vi.stubGlobal('fetch', async (url, options = {}) => {
+      calls.push({ url, options })
+      return url.endsWith('/auth/csrf')
+        ? jsonResponse({ token: 'guest-csrf', headerName: 'X-CSRF-TOKEN' })
+        : jsonResponse({ userId: 'viewer-id', username: 'viewer', guest: true })
+    })
+    const user = await auth.guest()
+    expect(user.guest).toBe(true)
+    expect(calls[1].url).toContain('/auth/guest')
+    expect(calls[1].options.headers['X-CSRF-TOKEN']).toBe('guest-csrf')
+    expect(calls[1].options.credentials).toBe('same-origin')
+    expect(JSON.parse(calls[1].options.body)).toEqual({})
+    expect(calls.some(({ url }) => url.endsWith('/auth/login'))).toBe(false)
+  })
+
   it('fetches a CSRF token first and sends it on an unsafe request', async () => {
     const calls = []
     vi.stubGlobal('fetch', async (url, options) => {

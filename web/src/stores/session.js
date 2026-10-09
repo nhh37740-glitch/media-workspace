@@ -37,6 +37,14 @@ export async function ensureIdentity() {
 export async function signIn(username, password) {
   state.user = await auth.login(username, password)
   state.checked = true
+  state.spaceId = null
+  return state.user
+}
+
+export async function browseAsGuest() {
+  state.user = await auth.guest()
+  state.checked = true
+  state.spaceId = null
   return state.user
 }
 

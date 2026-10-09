@@ -136,6 +136,20 @@ export async function request(method, path, options = {}) {
 }
 
 export const auth = {
+  /** Creates a server-enforced read-only session without handling any password. */
+  async guest() {
+    let user
+    try {
+      user = await request('POST', '/auth/guest', { body: {} })
+    } catch (error) {
+      if (error.status !== 403) throw error
+      clearCsrf()
+      await refreshCsrf()
+      user = await request('POST', '/auth/guest', { body: {} })
+    }
+    clearCsrf()
+    return user
+  },
   /** Signs in and drops the pre-login token; the next unsafe request fetches one for the new session. */
   async login(username, password) {
     let user
