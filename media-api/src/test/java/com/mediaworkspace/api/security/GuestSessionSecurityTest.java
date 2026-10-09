@@ -125,7 +125,7 @@ class GuestSessionSecurityTest {
         for (String path : new String[]{"/api/v1/spaces", "/api/v1/uploads", "/api/v1/uploads/id/chunks/0",
                 "/api/v1/media/id", "/api/v1/media/id/shares", "/api/v1/spaces/id/members/user",
                 "/api/v1/tasks/id/retry", "/api/v1/tasks/id/cancel", "/api/v1/future-write"}) {
-            for (String method : new String[]{"POST", "PUT", "PATCH", "DELETE"}) {
+            for (String method : new String[]{"POST", "PUT", "PATCH", "DELETE", "TRACE"}) {
                 mvc.perform(MockMvcRequestBuilders.request(org.springframework.http.HttpMethod.valueOf(method), path)
                         .session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{}"))
                         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));

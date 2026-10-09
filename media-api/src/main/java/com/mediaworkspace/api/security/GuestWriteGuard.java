@@ -17,7 +17,7 @@ import java.util.Set;
 
 /** Denies guest writes before reaching a controller, regardless of workspace role or URL. */
 public class GuestWriteGuard extends OncePerRequestFilter {
-    private static final Set<String> SAFE = Set.of("GET", "HEAD", "OPTIONS", "TRACE");
+    private static final Set<String> SAFE = Set.of("GET", "HEAD", "OPTIONS");
     private final ObjectMapper mapper;
     private final RequestContext requestContext;
 
