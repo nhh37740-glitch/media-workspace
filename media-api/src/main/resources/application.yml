@@ -67,6 +67,9 @@ spring:
     default-property-inclusion: always
 
 mediaworkspace:
+  guest:
+    enabled: ${MW_GUEST_ENABLED:false}
+    user-id: ${MW_GUEST_USER_ID:}
   kafka:
     topic-prefix: ${KAFKA_TOPIC_PREFIX:}
     listener-concurrency: 1

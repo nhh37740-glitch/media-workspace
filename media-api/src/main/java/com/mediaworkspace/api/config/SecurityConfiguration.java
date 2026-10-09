@@ -2,6 +2,7 @@ package com.mediaworkspace.api.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mediaworkspace.api.web.RequestContext;
+import com.mediaworkspace.api.security.GuestWriteGuard;
 import com.mediaworkspace.contracts.error.ApiErrorCode;
 import com.mediaworkspace.contracts.error.ErrorResponse;
 import jakarta.servlet.http.HttpServletResponse;
@@ -15,6 +16,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 import java.io.IOException;
 
@@ -71,7 +73,7 @@ public class SecurityConfiguration {
                 // The context is written to the session as soon as the login endpoint sets it.
                 .securityContext(context -> context.requireExplicitSave(false))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/login").permitAll()
+                        .requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/login", "/api/v1/auth/guest").permitAll()
                         // Share access authenticates with its own cookie, not with a sign-in session.
                         .requestMatchers("/api/v1/public/**").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
@@ -86,7 +88,8 @@ public class SecurityConfiguration {
                                         ApiErrorCode.FORBIDDEN, "this operation is not permitted")))
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
-                .logout(logout -> logout.disable());
+                .logout(logout -> logout.disable())
+                .addFilterBefore(new GuestWriteGuard(objectMapper, requestContext), AuthorizationFilter.class);
         return http.build();
     }
 

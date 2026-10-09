@@ -1,6 +1,7 @@
 package com.mediaworkspace.api.web;
 
 import com.mediaworkspace.api.security.DatabaseUserDetailsService;
+import com.mediaworkspace.api.security.GuestIdentityService;
 import com.mediaworkspace.contracts.dto.UserView;
 import com.mediaworkspace.contracts.error.ApiErrorCode;
 import com.mediaworkspace.contracts.error.ErrorResponse;
@@ -52,6 +53,7 @@ public class CurrentUser {
     /** The signed-in user as the identity endpoint reports it. */
     public UserView requireView() {
         String id = requireId();
-        return new UserView(id, userDetailsService.usernameOf(id));
+        return new UserView(id, userDetailsService.usernameOf(id),
+                GuestIdentityService.isGuest(SecurityContextHolder.getContext().getAuthentication()));
     }
 }

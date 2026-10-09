@@ -1,6 +1,7 @@
 package com.mediaworkspace.api.web;
 
 import com.mediaworkspace.api.config.SecurityConfiguration;
+import com.mediaworkspace.api.security.GuestIdentityService;
 import com.mediaworkspace.contracts.dto.CsrfResponse;
 import com.mediaworkspace.contracts.dto.LoginRequest;
 import com.mediaworkspace.contracts.dto.UserView;
@@ -36,10 +37,13 @@ public class AuthController {
 
     private final AuthenticationManager authenticationManager;
     private final CurrentUser currentUser;
+    private final GuestIdentityService guestIdentity;
 
-    public AuthController(AuthenticationManager authenticationManager, CurrentUser currentUser) {
+    public AuthController(AuthenticationManager authenticationManager, CurrentUser currentUser,
+                           GuestIdentityService guestIdentity) {
         this.authenticationManager = authenticationManager;
         this.currentUser = currentUser;
+        this.guestIdentity = guestIdentity;
     }
 
     /**
@@ -79,16 +83,29 @@ public class AuthController {
             throw new ApplicationException(ApiErrorCode.INVALID_CREDENTIALS, "invalid credentials");
         }
 
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(authentication);
-        SecurityContextHolder.setContext(context);
-        // Creates the session if there is none and adopts the authenticated context into it.
-        httpRequest.getSession(true);
+        establishSession(authentication, httpRequest);
 
         // The principal's name is the user id, which is what every later authorization decision
         // keys on; the principal object itself is a framework type whose string form is not an
         // identifier.
         return ResponseEntity.ok(new UserView(authentication.getName(), request.username()));
+    }
+
+    /** Uses the configured viewer identity; the normal security chain still requires CSRF. */
+    @PostMapping("/guest")
+    public ResponseEntity<UserView> guest(HttpServletRequest request) {
+        establishSession(guestIdentity.authenticate(), request);
+        return ResponseEntity.ok(currentUser.requireView());
+    }
+
+    private static void establishSession(Authentication authentication, HttpServletRequest request) {
+        request.getSession(true);
+        // Authentication occurs inside this controller, after the session filter has run.
+        // Rotate explicitly for guest creation and for upgrading a guest to password login.
+        request.changeSessionId();
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
     }
 
     /** Signs out: the session is invalidated, so the cookie is useless afterwards. */
