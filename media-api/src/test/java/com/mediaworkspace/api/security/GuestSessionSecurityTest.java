@@ -125,12 +125,23 @@ class GuestSessionSecurityTest {
         for (String path : new String[]{"/api/v1/spaces", "/api/v1/uploads", "/api/v1/uploads/id/chunks/0",
                 "/api/v1/media/id", "/api/v1/media/id/shares", "/api/v1/spaces/id/members/user",
                 "/api/v1/tasks/id/retry", "/api/v1/tasks/id/cancel", "/api/v1/future-write"}) {
-            for (String method : new String[]{"POST", "PUT", "PATCH", "DELETE", "TRACE"}) {
+            for (String method : new String[]{"POST", "PUT", "PATCH", "DELETE"}) {
                 mvc.perform(MockMvcRequestBuilders.request(org.springframework.http.HttpMethod.valueOf(method), path)
                         .session(session).header("X-CSRF-TOKEN", token).contentType("application/json").content("{}"))
                         .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
             }
         }
+        assertThat(mutations).hasValue(0);
+    }
+
+    @Test
+    void traceIsRejectedByDefaultFirewallBeforeController() throws Exception {
+        MockHttpSession session = guestSession();
+        String token = token(mvc.perform(get("/api/v1/auth/csrf").session(session)).andReturn());
+        // StrictHttpFirewall rejects TRACE before the guest guard can return its JSON 403.
+        mvc.perform(MockMvcRequestBuilders.request(org.springframework.http.HttpMethod.TRACE, "/api/v1/probe/write")
+                        .session(session).header("X-CSRF-TOKEN", token))
+                .andExpect(status().isBadRequest());
         assertThat(mutations).hasValue(0);
     }
 
