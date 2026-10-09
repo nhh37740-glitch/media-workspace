@@ -175,7 +175,7 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
       <div>
         <p class="page-eyebrow">LIBRARY / 素材管理</p>
         <h1 class="page-title">素材库</h1>
-        <p class="page-description">集中上传、查找和管理团队影音素材。</p>
+        <p class="page-description">{{ session.user?.guest ? '浏览和播放演示视频，查看真实处理任务。' : '集中上传、查找和管理团队影音素材。' }}</p>
       </div>
     </div>
     <el-card class="toolbar">
@@ -210,7 +210,7 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
 
     <el-empty
       v-if="!hasSpaces"
-      description="还没有可用的空间。创建一个空间后即可上传素材。"
+      :description="session.user?.guest ? '暂时没有开放的演示空间，请稍后再试。' : '还没有可用的空间。创建一个空间后即可上传素材。'"
       class="gap"
     />
 

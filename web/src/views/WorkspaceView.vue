@@ -245,6 +245,7 @@ async function revoke(share) {
             <el-button
               link
               type="primary"
+              v-if="!session.user?.guest"
               :disabled="row.status !== 'READY' || !canShare"
               @click="openShares(row)"
             >
