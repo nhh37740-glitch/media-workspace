@@ -72,6 +72,25 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
 
+  /auth/guest:
+    post:
+      tags: [auth]
+      summary: 以只读游客浏览演示
+      description: |
+        不提交账号或密码，仍需 X-CSRF-TOKEN。仅在服务器显式启用并核验固定 viewer UUID 后可用。
+        成功时更换 SESSION 标识并持久化 ROLE_GUEST；游客仅可执行原成员权限允许的安全读取，
+        所有修改请求都被服务器拒绝，只有密码登录升级和退出登录例外。
+      responses:
+        '200':
+          description: 已建立只读游客会话
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserView' }
+        '403':
+          description: CSRF 缺失或无效
+        '503':
+          description: 游客入口未启用或固定账号配置不可用
+
   /auth/logout:
     post:
       tags: [auth]
@@ -810,10 +829,11 @@ components:
 
     UserView:
       type: object
-      required: [userId, username]
+      required: [userId, username, guest]
       properties:
         userId: { type: string, format: uuid }
         username: { type: string }
+        guest: { type: boolean, description: 服务器会话是否带只读游客权限标记 }
 
     SpaceView:
       type: object
