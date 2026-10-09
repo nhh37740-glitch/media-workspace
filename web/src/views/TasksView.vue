@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ApiError, media, newIdempotencyKey, spaces, tasks } from '../api/client'
+import { session } from '../stores/session'
 import { describeError, describeTaskState, isTaskActive, isTaskRetryable } from '../utils/taskStates'
 import { formatInstant, formatRelative } from '../utils/format'
 
@@ -209,6 +210,7 @@ const activeCount = computed(() => rows.filter((row) => isTaskActive(row.state))
         <el-table-column label="操作" width="180">
           <template #default="{ row }">
             <el-button
+              v-if="!session.user?.guest"
               link
               type="primary"
               :disabled="!isTaskActive(row.state)"
@@ -218,6 +220,7 @@ const activeCount = computed(() => rows.filter((row) => isTaskActive(row.state))
               取消
             </el-button>
             <el-button
+              v-if="!session.user?.guest"
               link
               type="warning"
               :disabled="!isTaskRetryable(row.state)"
@@ -241,8 +244,8 @@ const activeCount = computed(() => rows.filter((row) => isTaskActive(row.state))
           <div v-if="describeError(row.errorCode)" class="mobile-error">{{ describeError(row.errorCode).text }}</div>
           <div class="mobile-item-actions">
             <el-button type="primary" plain @click="openDetail(row)">查看详情</el-button>
-            <el-button :disabled="!isTaskActive(row.state)" :loading="cancelingId === row.taskId" @click="cancel(row)">取消</el-button>
-            <el-button type="warning" plain :disabled="!isTaskRetryable(row.state)" :loading="retryingId === row.taskId" @click="retry(row)">重试</el-button>
+            <el-button v-if="!session.user?.guest" :disabled="!isTaskActive(row.state)" :loading="cancelingId === row.taskId" @click="cancel(row)">取消</el-button>
+            <el-button v-if="!session.user?.guest" type="warning" plain :disabled="!isTaskRetryable(row.state)" :loading="retryingId === row.taskId" @click="retry(row)">重试</el-button>
           </div>
         </article>
       </div>

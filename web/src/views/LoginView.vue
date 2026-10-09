@@ -3,13 +3,28 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ApiError } from '../api/client'
-import { signIn } from '../stores/session'
+import { signIn, browseAsGuest } from '../stores/session'
 
 const router = useRouter()
 const username = ref('')
 const password = ref('')
 const busy = ref(false)
 const failure = ref('')
+
+async function guest() {
+  busy.value = true
+  failure.value = ''
+  try {
+    await browseAsGuest()
+    router.replace({ name: 'media' })
+  } catch (error) {
+    failure.value = error instanceof ApiError && error.status === 503
+      ? '游客浏览暂未开放，请使用已有账号登录。'
+      : `暂时无法进入游客浏览：${error.message ?? '请稍后重试'}`
+  } finally {
+    busy.value = false
+  }
+}
 
 async function submit() {
   if (!username.value || !password.value) {
@@ -45,9 +60,11 @@ async function submit() {
     </div>
     <el-card class="login-card">
       <template #header>
-        <div class="title">欢迎回来</div>
-        <div class="subtitle">使用已有账号登录，账号由管理员通过命令行创建</div>
+        <div class="title">浏览演示素材</div>
+        <div class="subtitle">游客可查看和播放演示视频；管理素材请使用已有账号登录。</div>
       </template>
+      <el-button type="primary" :loading="busy" class="submit guest-entry" @click="guest">游客浏览</el-button>
+      <p class="guest-hint">无需账号密码 · 仅限只读浏览</p>
       <el-form label-position="top" @submit.prevent="submit">
         <el-form-item label="用户名">
           <el-input v-model="username" autocomplete="username" placeholder="owner" />
@@ -69,7 +86,7 @@ async function submit() {
           :title="failure"
           class="failure"
         />
-        <el-button type="primary" :loading="busy" class="submit" @click="submit">登录</el-button>
+        <el-button :loading="busy" class="submit" @click="submit">账号登录</el-button>
       </el-form>
     </el-card>
   </div>
@@ -110,6 +127,7 @@ async function submit() {
 .failure {
   margin-bottom: 12px;
 }
+.guest-hint { margin: 10px 0 22px; color: var(--el-text-color-secondary); font-size: 12px; text-align: center; }
 @media (max-width: 760px) {
   .login-page { min-height: 0; grid-template-columns: 1fr; gap: 18px; padding: 20px 0; }
   .login-intro { padding: 4px 8px; }

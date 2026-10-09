@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ApiError, media, newIdempotencyKey, tasks } from '../api/client'
+import { session } from '../stores/session'
 import { openEventStream } from '../api/eventStream'
 import {
   describeCancelReason,
@@ -241,8 +242,8 @@ const errorInfo = computed(() => describeError(task.value?.errorCode))
         </el-descriptions>
 
         <div class="actions">
-          <el-button :disabled="!isTaskActive(task.state)" @click="cancel">取消任务</el-button>
-          <el-button :disabled="!isTaskRetryable(task.state)" type="warning" @click="retry">
+          <el-button v-if="!session.user?.guest" :disabled="!isTaskActive(task.state)" @click="cancel">取消任务</el-button>
+          <el-button v-if="!session.user?.guest" :disabled="!isTaskRetryable(task.state)" type="warning" @click="retry">
             重试
           </el-button>
           <el-button @click="load">刷新</el-button>

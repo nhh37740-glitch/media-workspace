@@ -53,7 +53,8 @@ async function handleSignOut() {
         <el-menu-item index="workspace" :route="{ name: 'workspace' }">共享空间</el-menu-item>
       </el-menu>
       <div class="account">
-        <span v-if="user" class="username">{{ user.username }}</span>
+        <span v-if="user" class="username">{{ user.guest ? '游客 · 只读' : user.username }}</span>
+        <el-button v-if="user?.guest" link type="primary" @click="router.push({ name: 'login' })">账号登录</el-button>
         <el-button class="sign-out" link type="primary" @click="handleSignOut">退出</el-button>
       </div>
     </el-header>

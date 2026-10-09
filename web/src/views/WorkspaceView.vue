@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ApiError, media, spaces } from '../api/client'
+import { session } from '../stores/session'
 import { formatInstant, formatRelative } from '../utils/format'
 
 /**
@@ -27,8 +28,8 @@ const createdShare = ref(null)
 const currentRole = computed(
   () => spaceList.value.find((space) => space.spaceId === spaceId.value)?.role ?? null
 )
-const isOwner = computed(() => currentRole.value === 'OWNER')
-const canShare = computed(() => isOwner.value || currentRole.value === 'EDITOR')
+const isOwner = computed(() => !session.user?.guest && currentRole.value === 'OWNER')
+const canShare = computed(() => !session.user?.guest && (isOwner.value || currentRole.value === 'EDITOR'))
 
 onMounted(async () => {
   try {
@@ -167,7 +168,7 @@ async function revoke(share) {
       <div>
         <p class="page-eyebrow">WORKSPACE / 团队协作</p>
         <h1 class="page-title">共享空间</h1>
-        <p class="page-description">管理成员权限，创建有时效的素材分享。</p>
+        <p class="page-description">{{ session.user?.guest ? '查看已开放的演示空间和素材，游客仅可浏览。' : '管理成员权限，创建有时效的素材分享。' }}</p>
       </div>
     </div>
     <el-card class="toolbar">
@@ -204,6 +205,7 @@ async function revoke(share) {
         <el-table-column label="操作" width="120">
           <template #default="{ row }">
             <el-button
+              v-if="!session.user?.guest"
               link
               type="danger"
               :disabled="row.role === 'OWNER'"
@@ -255,7 +257,7 @@ async function revoke(share) {
         <el-empty v-if="!mediaRows.length" description="这个空间还没有素材" />
         <article v-for="row in mediaRows" :key="row.mediaId" class="mobile-item">
           <div class="member-heading"><h3 class="mobile-item-title">{{ row.title }}</h3><el-tag size="small" :type="row.status === 'READY' ? 'success' : 'info'">{{ row.status }}</el-tag></div>
-          <div class="mobile-item-actions"><el-button type="primary" plain :disabled="row.status !== 'READY' || !canShare" @click="openShares(row)">管理分享</el-button></div>
+          <div class="mobile-item-actions"><el-button v-if="!session.user?.guest" type="primary" plain :disabled="row.status !== 'READY' || !canShare" @click="openShares(row)">管理分享</el-button></div>
         </article>
       </div>
       <div class="hint">只有转码完成的素材可以分享；分享只授予该素材的播放权限。</div>
@@ -267,7 +269,7 @@ async function revoke(share) {
       size="520px"
       @close="sharingMedia = null"
     >
-      <el-button type="primary" @click="createShare">创建 1 小时有效的分享</el-button>
+      <el-button v-if="canShare" type="primary" @click="createShare">创建 1 小时有效的分享</el-button>
 
       <el-alert
         v-if="createdShare"

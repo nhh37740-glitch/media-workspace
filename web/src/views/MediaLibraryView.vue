@@ -20,6 +20,7 @@ const query = ref('')
 // Whether the upload panel is offered at all. This is a usability decision only: the server
 // re-checks the role on every request, and a VIEWER who posted an upload would be refused there.
 const canUpload = computed(() => {
+  if (session.user?.guest) return false
   const found = spaceList.value.find((space) => space.spaceId === spaceId.value)
   return found?.role === 'OWNER' || found?.role === 'EDITOR'
 })
@@ -201,7 +202,7 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
           @clear="load"
         />
         <el-button @click="load">搜索</el-button>
-        <el-button type="primary" plain @click="createSpace">新建空间</el-button>
+        <el-button v-if="!session.user?.guest" type="primary" plain @click="createSpace">新建空间</el-button>
       </div>
     </el-card>
 
@@ -242,7 +243,7 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
             <template #default="{ row }">
               <div class="title-cell">
                 <span>{{ row.title }}</span>
-                <el-button link type="primary" size="small" @click="startRename(row)">
+                <el-button v-if="!session.user?.guest" link type="primary" size="small" @click="startRename(row)">
                   重命名
                 </el-button>
               </div>
@@ -275,7 +276,7 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
                 播放
               </el-button>
               <el-button v-if="row.taskId" link @click="openTask(row)">任务详情</el-button>
-              <el-button link type="danger" @click="remove(row)">删除</el-button>
+              <el-button v-if="!session.user?.guest" link type="danger" @click="remove(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -294,8 +295,8 @@ const hasSpaces = computed(() => spaceList.value.length > 0)
             <div class="mobile-item-actions">
               <el-button type="primary" plain :disabled="row.status !== 'READY'" @click="play(row)">播放</el-button>
               <el-button v-if="row.taskId" @click="openTask(row)">任务详情</el-button>
-              <el-button @click="startRename(row)">重命名</el-button>
-              <el-button type="danger" plain @click="remove(row)">删除</el-button>
+              <el-button v-if="!session.user?.guest" @click="startRename(row)">重命名</el-button>
+              <el-button v-if="!session.user?.guest" type="danger" plain @click="remove(row)">删除</el-button>
             </div>
           </article>
         </div>
